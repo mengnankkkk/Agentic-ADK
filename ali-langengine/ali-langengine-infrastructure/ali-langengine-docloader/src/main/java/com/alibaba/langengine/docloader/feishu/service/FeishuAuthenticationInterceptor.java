@@ -1,32 +1,44 @@
 package com.alibaba.langengine.docloader.feishu.service;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
+import com.alibaba.langengine.docloader.feishu.config.FeishuConfig;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.*;
 import org.jetbrains.annotations.NotNull;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 
+@Slf4j
 public class FeishuAuthenticationInterceptor implements Interceptor {
 
-    private static final String TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal/";
     private static final String BEARER_PREFIX = "Bearer ";
-    private static final long TOKEN_REFRESH_ADVANCE_TIME = 300; // 提前5分钟刷新
 
     private final String appId;
     private final String appSecret;
     private final ConcurrentHashMap<String, String> tokenCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Long> tokenExpireTime = new ConcurrentHashMap<>();
-    private final ReentrantLock tokenLock = new ReentrantLock();
+    private final ReentrantReadWriteLock tokenLock = new ReentrantReadWriteLock();
     private final OkHttpClient httpClient;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public FeishuAuthenticationInterceptor(String appId, String appSecret) {
+        if (appId == null || appId.trim().isEmpty()) {
+            throw new IllegalArgumentException("appId cannot be null or empty");
+        }
+        if (appSecret == null || appSecret.trim().isEmpty()) {
+            throw new IllegalArgumentException("appSecret cannot be null or empty");
+        }
+        
         this.appId = appId;
         this.appSecret = appSecret;
-        this.httpClient = new OkHttpClient.Builder().build();
+        this.httpClient = new OkHttpClient.Builder()
+            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .build();
     }
 
     @NotNull
@@ -56,60 +68,91 @@ public class FeishuAuthenticationInterceptor implements Interceptor {
     private String getAccessToken() throws IOException {
         String cacheKey = "tenant_access_token";
 
-        // 检查缓存中的令牌是否有效
-        if (isTokenValid(cacheKey)) {
-            return tokenCache.get(cacheKey);
+        // 使用读锁检查缓存
+        tokenLock.readLock().lock();
+        try {
+            if (isTokenValid(cacheKey)) {
+                return tokenCache.get(cacheKey);
+            }
+        } finally {
+            tokenLock.readLock().unlock();
         }
 
-        tokenLock.lock();
+        // 使用写锁获取新令牌
+        tokenLock.writeLock().lock();
         try {
             // 双重检查
             if (isTokenValid(cacheKey)) {
                 return tokenCache.get(cacheKey);
             }
 
+            return fetchNewToken(cacheKey);
+        } finally {
+            tokenLock.writeLock().unlock();
+        }
+    }
+    
+    /**
+     * 获取新令牌
+     */
+    private String fetchNewToken(String cacheKey) throws IOException {
+        try {
             // 构建请求体
-            JSONObject requestBody = new JSONObject();
-            requestBody.put("app_id", appId);
-            requestBody.put("app_secret", appSecret);
+            String requestJson = objectMapper.writeValueAsString(
+                java.util.Map.of("app_id", appId, "app_secret", appSecret)
+            );
 
             RequestBody body = RequestBody.create(
-                    requestBody.toJSONString(),
-                    MediaType.get("application/json; charset=utf-8")
+                requestJson,
+                MediaType.get("application/json; charset=utf-8")
             );
 
             Request request = new Request.Builder()
-                    .url(TOKEN_URL)
+                    .url(FeishuConfig.TOKEN_URL)
                     .post(body)
                     .build();
 
             try (Response response = httpClient.newCall(request).execute()) {
                 if (!response.isSuccessful()) {
-                    throw new IOException("Failed to get access token: " + response);
+                    String errorMsg = String.format("HTTP %d: %s", response.code(), response.message());
+                    log.error("Failed to get access token: {}", errorMsg);
+                    throw new IOException("Failed to get access token: " + errorMsg);
                 }
 
-                String responseBody = response.body().string();
-                JSONObject responseJson = JSON.parseObject(responseBody);
+                ResponseBody responseBody = response.body();
+                if (responseBody == null) {
+                    throw new IOException("Empty response body");
+                }
 
-                int code = responseJson.getIntValue("code");
+                String responseStr = responseBody.string();
+                JsonNode responseJson = objectMapper.readTree(responseStr);
+
+                int code = responseJson.path("code").asInt(-1);
                 if (code != 0) {
-                    String msg = responseJson.getString("msg");
+                    String msg = responseJson.path("msg").asText("Unknown error");
+                    log.error("API error getting access token: code={}, msg={}", code, msg);
                     throw new IOException("Failed to get access token: " + msg);
                 }
 
                 // 提取令牌
-                String token = responseJson.getString("tenant_access_token");
-                int expire = responseJson.getIntValue("expire");
+                String token = responseJson.path("tenant_access_token").asText();
+                int expire = responseJson.path("expire").asInt(7200);
+
+                if (token == null || token.isEmpty()) {
+                    throw new IOException("Empty token received from API");
+                }
 
                 // 缓存令牌
+                long expireTime = System.currentTimeMillis() + (expire - FeishuConfig.TOKEN_REFRESH_ADVANCE_TIME) * 1000L;
                 tokenCache.put(cacheKey, token);
-                tokenExpireTime.put(cacheKey, System.currentTimeMillis() + (expire - TOKEN_REFRESH_ADVANCE_TIME) * 1000L);
+                tokenExpireTime.put(cacheKey, expireTime);
 
+                log.debug("Successfully obtained new access token, expires in {} seconds", expire);
                 return token;
             }
-
-        } finally {
-            tokenLock.unlock();
+        } catch (Exception e) {
+            log.error("Error fetching new token: {}", e.getMessage(), e);
+            throw new IOException("Failed to fetch access token", e);
         }
     }
 
@@ -120,6 +163,13 @@ public class FeishuAuthenticationInterceptor implements Interceptor {
         String token = tokenCache.get(cacheKey);
         Long expireTime = tokenExpireTime.get(cacheKey);
 
-        return token != null && expireTime != null && System.currentTimeMillis() < expireTime;
+        boolean valid = token != null && !token.trim().isEmpty() && 
+                       expireTime != null && System.currentTimeMillis() < expireTime;
+        
+        if (!valid && token != null) {
+            log.debug("Token expired or invalid, will refresh");
+        }
+        
+        return valid;
     }
 }

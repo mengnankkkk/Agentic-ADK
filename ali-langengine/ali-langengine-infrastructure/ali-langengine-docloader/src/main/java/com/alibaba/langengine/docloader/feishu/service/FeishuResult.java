@@ -1,5 +1,6 @@
 package com.alibaba.langengine.docloader.feishu.service;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -38,12 +39,14 @@ public class FeishuResult<T> {
         /**
          * 下一页标识
          */
-        private String page_token;
+        @JsonProperty("page_token")
+        private String pageToken;
 
         /**
          * 是否还有更多数据
          */
-        private Boolean has_more;
+        @JsonProperty("has_more")
+        private Boolean hasMore;
 
         /**
          * 总数量（某些API返回）
