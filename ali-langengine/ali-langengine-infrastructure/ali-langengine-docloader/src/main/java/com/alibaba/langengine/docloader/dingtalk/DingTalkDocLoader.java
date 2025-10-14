@@ -12,10 +12,7 @@ import org.jsoup.Jsoup;
 
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 
@@ -68,7 +65,8 @@ public class DingTalkDocLoader extends BaseLoader {
     public DingTalkDocLoader(String apiToken, Long timeout) {
         this.apiToken = apiToken;
         this.service = new DingTalkService(apiToken, Duration.ofSeconds(timeout));
-        this.ioExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        // Use fixed thread pool instead of Virtual Threads (Java 8 compatible)
+        this.ioExecutor = Executors.newFixedThreadPool(10);
     }
 
     /**
@@ -81,9 +79,27 @@ public class DingTalkDocLoader extends BaseLoader {
         try {
             return StringUtils.isEmpty(documentId) ? loadBatchDocuments() : loadSingleDocument();
         } finally {
-            if (ioExecutor != null && !ioExecutor.isShutdown()) {
-                ioExecutor.shutdown();
+            shutdown();
+        }
+    }
+    
+    /**
+     * 关闭资源
+     */
+    public void shutdown() {
+        if (ioExecutor != null && !ioExecutor.isShutdown()) {
+            ioExecutor.shutdown();
+            try {
+                if (!ioExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+                    ioExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                ioExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
             }
+        }
+        if (service != null) {
+            service.shutdown();
         }
     }
 
@@ -104,12 +120,12 @@ public class DingTalkDocLoader extends BaseLoader {
     }
 
     /**
-     * 批量加载文档
+     * 批量加载文档（增强版）
      */
     private List<Document> loadBatchDocuments() {
         log.info("Starting batch document loading for namespace: {}", namespace);
         
-        List<Document> allDocuments = new ArrayList<>();
+        List<Document> allDocuments = Collections.synchronizedList(new ArrayList<>());
         int offset = 0;
         int totalProcessed = 0;
         
@@ -125,23 +141,39 @@ public class DingTalkDocLoader extends BaseLoader {
             
             log.info("Processing batch: offset={}, size={}", offset, docInfos.size());
             
-            // 并发获取文档详情
-            List<CompletableFuture<Document>> futures = docInfos.stream()
-                .map(docInfo -> CompletableFuture.supplyAsync(() -> 
-                    fetchDocumentDetailSafely(docInfo.getId()), ioExecutor))
-                .collect(Collectors.toList());
+            // 分批处理，避免过多并发
+            List<List<DingTalkDocInfo>> chunks = partitionList(docInfos, 10);
             
-            // 等待所有任务完成并收集结果
-            List<Document> batchDocuments = futures.stream()
-                .map(CompletableFuture::join)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+            for (List<DingTalkDocInfo> chunk : chunks) {
+                List<CompletableFuture<Document>> futures = chunk.stream()
+                    .map(docInfo -> CompletableFuture.supplyAsync(() -> 
+                        fetchDocumentDetailSafely(docInfo.getId()), ioExecutor)
+                        .orTimeout(30, TimeUnit.SECONDS))
+                    .collect(Collectors.toList());
+                
+                // 等待当前批次完成
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                    .join();
+                
+                List<Document> chunkDocuments = futures.stream()
+                    .map(future -> {
+                        try {
+                            return future.get();
+                        } catch (Exception e) {
+                            log.warn("Future execution failed: {}", e.getMessage());
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+                
+                allDocuments.addAll(chunkDocuments);
+            }
             
-            allDocuments.addAll(batchDocuments);
             totalProcessed += docInfos.size();
             
             log.info("Batch completed: processed={}, valid_documents={}, total_processed={}", 
-                docInfos.size(), batchDocuments.size(), totalProcessed);
+                docInfos.size(), allDocuments.size() - (totalProcessed - docInfos.size()), totalProcessed);
             
             offset += batchSize;
             
@@ -156,6 +188,17 @@ public class DingTalkDocLoader extends BaseLoader {
             allDocuments.size(), failedDocuments.size());
         
         return allDocuments;
+    }
+    
+    /**
+     * 将列表分割成指定大小的块
+     */
+    private <T> List<List<T>> partitionList(List<T> list, int chunkSize) {
+        List<List<T>> partitions = new ArrayList<>();
+        for (int i = 0; i < list.size(); i += chunkSize) {
+            partitions.add(list.subList(i, Math.min(i + chunkSize, list.size())));
+        }
+        return partitions;
     }
 
     /**
