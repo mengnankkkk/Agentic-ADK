@@ -64,6 +64,41 @@ public class WeWorkConfig {
     public static final int DEFAULT_CONCURRENT_THREADS = 10;
 
     /**
+     * 默认线程池核心线程数
+     */
+    public static final int DEFAULT_CORE_POOL_SIZE = 4;
+
+    /**
+     * 默认线程池最大线程数
+     */
+    public static final int DEFAULT_MAX_POOL_SIZE = 10;
+
+    /**
+     * 默认线程池空闲时间（秒）
+     */
+    public static final long DEFAULT_KEEP_ALIVE_TIME = 60L;
+
+    /**
+     * 令牌刷新提前时间（秒）
+     */
+    public static final long TOKEN_REFRESH_ADVANCE_TIME = 300L;
+
+    /**
+     * 默认分块大小（并发处理）
+     */
+    public static final int DEFAULT_CHUNK_SIZE = 10;
+
+    /**
+     * 请求超时时间（毫秒）
+     */
+    public static final long REQUEST_TIMEOUT_MS = 30000L;
+
+    /**
+     * 连接超时时间（毫秒）
+     */
+    public static final long CONNECT_TIMEOUT_MS = 10000L;
+
+    /**
      * 私有构造函数，防止实例化
      */
     private WeWorkConfig() {

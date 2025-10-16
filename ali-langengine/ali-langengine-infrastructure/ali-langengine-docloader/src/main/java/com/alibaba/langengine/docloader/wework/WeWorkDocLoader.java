@@ -2,6 +2,8 @@ package com.alibaba.langengine.docloader.wework;
 
 import com.alibaba.langengine.core.docloader.BaseLoader;
 import com.alibaba.langengine.core.indexes.Document;
+import com.alibaba.langengine.docloader.wework.exception.WeWorkDocLoaderException;
+import com.alibaba.langengine.docloader.wework.service.WeWorkConfig;
 import com.alibaba.langengine.docloader.wework.service.WeWorkDocInfo;
 import com.alibaba.langengine.docloader.wework.service.WeWorkResult;
 import com.alibaba.langengine.docloader.wework.service.WeWorkService;
@@ -47,7 +49,7 @@ public class WeWorkDocLoader extends BaseLoader {
     /**
      * 批量加载时的批次大小
      */
-    private int batchSize = 50;
+    private int batchSize = WeWorkConfig.DEFAULT_BATCH_SIZE;
     
     /**
      * 是否返回HTML内容
@@ -56,7 +58,7 @@ public class WeWorkDocLoader extends BaseLoader {
     
     /**
      * 专用于I/O任务的线程池
-     * 使用固定线程池代替虚拟线程以确保Java 8兼容性
+     * 使用更合理的线程池配置
      */
     private ExecutorService ioExecutor;
     
@@ -64,6 +66,11 @@ public class WeWorkDocLoader extends BaseLoader {
      * 记录获取失败的文档ID
      */
     private final Set<String> failedDocuments = ConcurrentHashMap.newKeySet();
+
+    /**
+     * 加载统计信息
+     */
+    private final LoadStatistics statistics = new LoadStatistics();
 
     /**
      * 构造函数
@@ -74,8 +81,16 @@ public class WeWorkDocLoader extends BaseLoader {
     public WeWorkDocLoader(String apiToken, Long timeout) {
         this.apiToken = apiToken;
         this.service = new WeWorkService(apiToken, Duration.ofSeconds(timeout));
-        // 使用固定线程池，确保Java 8兼容性
-        this.ioExecutor = Executors.newFixedThreadPool(10);
+        // 使用更合理的线程池配置
+        this.ioExecutor = new ThreadPoolExecutor(
+            WeWorkConfig.DEFAULT_CORE_POOL_SIZE, 
+            WeWorkConfig.DEFAULT_MAX_POOL_SIZE,
+            WeWorkConfig.DEFAULT_KEEP_ALIVE_TIME, 
+            TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(100),
+            r -> new Thread(r, "wework-doc-loader-" + System.currentTimeMillis()),
+            new ThreadPoolExecutor.CallerRunsPolicy()
+        );
     }
 
     /**
@@ -84,10 +99,28 @@ public class WeWorkDocLoader extends BaseLoader {
      */
     @Override
     public List<Document> load() {
-        validateConfiguration();
+        long startTime = System.currentTimeMillis();
+        statistics.startLoad();
         
         try {
-            return StringUtils.isEmpty(documentId) ? loadBatchDocuments() : loadSingleDocument();
+            validateConfiguration();
+            
+            List<Document> documents = StringUtils.isEmpty(documentId) ? 
+                loadBatchDocuments() : loadSingleDocument();
+            
+            statistics.completeLoad(documents.size(), failedDocuments.size());
+            logLoadSummary(startTime, documents.size());
+            
+            return documents;
+        } catch (Exception e) {
+            statistics.failLoad();
+            log.error("Document loading failed", e);
+            throw new WeWorkDocLoaderException(
+                WeWorkDocLoaderException.ERROR_SERVICE_UNAVAILABLE,
+                "load",
+                "Failed to load documents: " + e.getMessage(),
+                e
+            );
         } finally {
             shutdown();
         }
@@ -154,7 +187,7 @@ public class WeWorkDocLoader extends BaseLoader {
             log.info("Processing batch: offset={}, size={}", offset, docInfos.size());
             
             // 分批处理，避免过多并发导致资源耗尽
-            List<List<WeWorkDocInfo>> chunks = partitionList(docInfos, 10);
+            List<List<WeWorkDocInfo>> chunks = partitionList(docInfos, WeWorkConfig.DEFAULT_CHUNK_SIZE);
             
             for (List<WeWorkDocInfo> chunk : chunks) {
                 // 使用CompletableFuture进行并发处理
@@ -164,8 +197,22 @@ public class WeWorkDocLoader extends BaseLoader {
                     .collect(Collectors.toList());
                 
                 // 等待当前批次完成
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                    .join();
+                try {
+                    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .get(WeWorkConfig.REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                } catch (TimeoutException e) {
+                    log.warn("Batch processing timeout, continuing with partial results");
+                    futures.forEach(future -> future.cancel(true));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new WeWorkDocLoaderException(
+                        WeWorkDocLoaderException.ERROR_THREAD_POOL,
+                        "loadBatchDocuments",
+                        "Thread interrupted during batch processing"
+                    );
+                } catch (ExecutionException e) {
+                    log.warn("Error in batch processing: {}", e.getMessage());
+                }
                 
                 // 收集成功的结果
                 List<Document> chunkDocuments = futures.stream()
@@ -298,14 +345,37 @@ public class WeWorkDocLoader extends BaseLoader {
      */
     private void validateConfiguration() {
         if (StringUtils.isEmpty(apiToken)) {
-            throw new IllegalArgumentException("API token is required");
+            throw new WeWorkDocLoaderException(
+                WeWorkDocLoaderException.ERROR_INVALID_CONFIG,
+                "validateConfiguration",
+                "API token is required"
+            );
         }
         if (StringUtils.isEmpty(namespace)) {
-            throw new IllegalArgumentException("Namespace is required");
+            throw new WeWorkDocLoaderException(
+                WeWorkDocLoaderException.ERROR_INVALID_CONFIG,
+                "validateConfiguration",
+                "Namespace is required"
+            );
         }
-        if (batchSize <= 0 || batchSize > 100) {
-            throw new IllegalArgumentException("Batch size must be between 1 and 100");
+        if (batchSize <= 0 || batchSize > WeWorkConfig.MAX_BATCH_SIZE) {
+            throw new WeWorkDocLoaderException(
+                WeWorkDocLoaderException.ERROR_INVALID_CONFIG,
+                "validateConfiguration",
+                String.format("Batch size must be between 1 and %d, got: %d", 
+                    WeWorkConfig.MAX_BATCH_SIZE, batchSize)
+            );
         }
+        if (service == null) {
+            throw new WeWorkDocLoaderException(
+                WeWorkDocLoaderException.ERROR_INVALID_CONFIG,
+                "validateConfiguration",
+                "WeWork service is not initialized"
+            );
+        }
+        
+        log.debug("Configuration validation passed: apiToken={}, namespace={}, batchSize={}", 
+            apiToken != null ? "***" : "null", namespace, batchSize);
     }
 
     /**
@@ -358,10 +428,32 @@ public class WeWorkDocLoader extends BaseLoader {
 
         public WeWorkDocLoader build() {
             if (StringUtils.isEmpty(apiToken)) {
-                throw new IllegalArgumentException("API token is required");
+                throw new WeWorkDocLoaderException(
+                    WeWorkDocLoaderException.ERROR_INVALID_CONFIG,
+                    "build",
+                    "API token is required"
+                );
             }
             if (StringUtils.isEmpty(namespace)) {
-                throw new IllegalArgumentException("Namespace is required");
+                throw new WeWorkDocLoaderException(
+                    WeWorkDocLoaderException.ERROR_INVALID_CONFIG,
+                    "build",
+                    "Namespace is required"
+                );
+            }
+            if (batchSize <= 0 || batchSize > WeWorkConfig.MAX_BATCH_SIZE) {
+                throw new WeWorkDocLoaderException(
+                    WeWorkDocLoaderException.ERROR_INVALID_CONFIG,
+                    "build",
+                    String.format("Batch size must be between 1 and %d", WeWorkConfig.MAX_BATCH_SIZE)
+                );
+            }
+            if (timeout <= 0) {
+                throw new WeWorkDocLoaderException(
+                    WeWorkDocLoaderException.ERROR_INVALID_CONFIG,
+                    "build",
+                    "Timeout must be greater than 0"
+                );
             }
             
             WeWorkDocLoader loader = new WeWorkDocLoader(apiToken, timeout);
@@ -372,5 +464,97 @@ public class WeWorkDocLoader extends BaseLoader {
             loader.setReturnHtml(returnHtml);
             return loader;
         }
+    }
+
+    /**
+     * 记录加载摘要日志
+     */
+    private void logLoadSummary(long startTime, int successCount) {
+        long duration = System.currentTimeMillis() - startTime;
+        log.info("=== WeWork Document Loading Summary ===");
+        log.info("Total time: {} ms", duration);
+        log.info("Successful documents: {}", successCount);
+        log.info("Failed documents: {}", failedDocuments.size());
+        log.info("Average time per document: {} ms", 
+            successCount > 0 ? duration / successCount : 0);
+        
+        if (!failedDocuments.isEmpty()) {
+            log.warn("Failed document IDs: {}", failedDocuments);
+        }
+    }
+
+    /**
+     * 获取加载统计信息
+     */
+    public LoadStatistics getStatistics() {
+        return statistics;
+    }
+
+    /**
+     * 重置统计信息
+     */
+    public void resetStatistics() {
+        statistics.reset();
+        failedDocuments.clear();
+    }
+
+    /**
+     * 加载统计信息类
+     */
+    public static class LoadStatistics {
+        private volatile long totalLoads = 0;
+        private volatile long successfulLoads = 0;
+        private volatile long failedLoads = 0;
+        private volatile long totalDocuments = 0;
+        private volatile long totalFailedDocuments = 0;
+        private volatile long totalTime = 0;
+        private volatile long lastLoadTime = 0;
+        private volatile boolean isLoading = false;
+
+        public synchronized void startLoad() {
+            isLoading = true;
+            totalLoads++;
+            lastLoadTime = System.currentTimeMillis();
+        }
+
+        public synchronized void completeLoad(int documentCount, int failedCount) {
+            isLoading = false;
+            successfulLoads++;
+            totalDocuments += documentCount;
+            totalFailedDocuments += failedCount;
+            totalTime += System.currentTimeMillis() - lastLoadTime;
+        }
+
+        public synchronized void failLoad() {
+            isLoading = false;
+            failedLoads++;
+            totalTime += System.currentTimeMillis() - lastLoadTime;
+        }
+
+        public synchronized void reset() {
+            totalLoads = 0;
+            successfulLoads = 0;
+            failedLoads = 0;
+            totalDocuments = 0;
+            totalFailedDocuments = 0;
+            totalTime = 0;
+            lastLoadTime = 0;
+            isLoading = false;
+        }
+
+        // Getters
+        public long getTotalLoads() { return totalLoads; }
+        public long getSuccessfulLoads() { return successfulLoads; }
+        public long getFailedLoads() { return failedLoads; }
+        public long getTotalDocuments() { return totalDocuments; }
+        public long getTotalFailedDocuments() { return totalFailedDocuments; }
+        public long getTotalTime() { return totalTime; }
+        public double getAverageTimePerLoad() { 
+            return successfulLoads > 0 ? (double) totalTime / successfulLoads : 0; 
+        }
+        public double getSuccessRate() { 
+            return totalLoads > 0 ? (double) successfulLoads / totalLoads : 0; 
+        }
+        public boolean isLoading() { return isLoading; }
     }
 }

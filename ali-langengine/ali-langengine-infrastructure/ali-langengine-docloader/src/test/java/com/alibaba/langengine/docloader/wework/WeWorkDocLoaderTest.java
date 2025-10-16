@@ -1,6 +1,7 @@
 package com.alibaba.langengine.docloader.wework;
 
 import com.alibaba.langengine.core.indexes.Document;
+import com.alibaba.langengine.docloader.wework.exception.WeWorkDocLoaderException;
 import com.alibaba.langengine.docloader.wework.service.WeWorkDocInfo;
 import com.alibaba.langengine.docloader.wework.service.WeWorkResult;
 import com.alibaba.langengine.docloader.wework.service.WeWorkService;
@@ -138,14 +139,14 @@ class WeWorkDocLoaderTest {
     @Test
     void testBuilderValidation() {
         // Test missing API token
-        assertThrows(IllegalArgumentException.class, () -> {
+        assertThrows(WeWorkDocLoaderException.class, () -> {
             new WeWorkDocLoader.Builder()
                 .namespace("namespace")
                 .build();
         });
 
         // Test missing namespace
-        assertThrows(IllegalArgumentException.class, () -> {
+        assertThrows(WeWorkDocLoaderException.class, () -> {
             new WeWorkDocLoader.Builder()
                 .apiToken("token")
                 .build();
@@ -156,20 +157,20 @@ class WeWorkDocLoaderTest {
     void testConfigurationValidation() {
         // Test missing API token
         loader.setApiToken(null);
-        assertThrows(IllegalArgumentException.class, () -> loader.load());
+        assertThrows(WeWorkDocLoaderException.class, () -> loader.load());
 
         // Test missing namespace
         loader.setApiToken("token");
         loader.setNamespace(null);
-        assertThrows(IllegalArgumentException.class, () -> loader.load());
+        assertThrows(WeWorkDocLoaderException.class, () -> loader.load());
 
         // Test invalid batch size
         loader.setNamespace("namespace");
         loader.setBatchSize(0);
-        assertThrows(IllegalArgumentException.class, () -> loader.load());
+        assertThrows(WeWorkDocLoaderException.class, () -> loader.load());
 
         loader.setBatchSize(101);
-        assertThrows(IllegalArgumentException.class, () -> loader.load());
+        assertThrows(WeWorkDocLoaderException.class, () -> loader.load());
     }
 
     @Test
