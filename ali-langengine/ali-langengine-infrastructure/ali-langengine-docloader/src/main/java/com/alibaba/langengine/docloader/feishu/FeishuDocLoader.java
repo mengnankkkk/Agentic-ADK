@@ -95,20 +95,34 @@ public class FeishuDocLoader extends BaseLoader {
      */
     private List<Document> loadSingleDocument() {
         try {
-            FeishuResult<FeishuDocContent> result = service.getDocxRawContent(docToken);
-            if (result.getCode() != 0) {
-                log.error("Failed to load Feishu document {}: {}", docToken, result.getMsg());
-                return new ArrayList<>();
-            }
-
-            if (result.getData() == null || StringUtils.isEmpty(result.getData().getContent())) {
-                log.warn("Feishu document {} has no content", docToken);
-                return new ArrayList<>();
-            }
-
-            Document document = createDocumentFromContent(docToken, result.getData());
             List<Document> documents = new ArrayList<>();
-            documents.add(document);
+            // 根据文档类型分别处理新版(docx)与旧版(doc)
+            if ("doc".equalsIgnoreCase(docType)) {
+                FeishuResult<FeishuDocBlocks> result = service.getDocBlocks(docToken);
+                if (result.getCode() != 0) {
+                    log.error("Failed to load Feishu legacy document {}: {}", docToken, result.getMsg());
+                    return new ArrayList<>();
+                }
+                if (result.getData() == null || result.getData().getBlocks() == null || result.getData().getBlocks().isEmpty()) {
+                    log.warn("Feishu legacy document {} has no content", docToken);
+                    return new ArrayList<>();
+                }
+                Document document = createDocumentFromBlocks(docToken, result.getData());
+                documents.add(document);
+            } else {
+                // 默认按docx处理
+                FeishuResult<FeishuDocContent> result = service.getDocxRawContent(docToken);
+                if (result.getCode() != 0) {
+                    log.error("Failed to load Feishu document {}: {}", docToken, result.getMsg());
+                    return new ArrayList<>();
+                }
+                if (result.getData() == null || StringUtils.isEmpty(result.getData().getContent())) {
+                    log.warn("Feishu document {} has no content", docToken);
+                    return new ArrayList<>();
+                }
+                Document document = createDocumentFromContent(docToken, result.getData());
+                documents.add(document);
+            }
             return documents;
         } catch (Exception e) {
             log.error("Error loading Feishu document: {}", docToken, e);
@@ -172,19 +186,32 @@ public class FeishuDocLoader extends BaseLoader {
     private Document loadNodeDocument(FeishuNodeList.Node node) {
         try {
             String objToken = node.getObjToken();
-            FeishuResult<FeishuDocContent> result = service.getDocxRawContent(objToken);
-            
-            if (result.getCode() != 0) {
-                log.warn("Failed to load document for node {}: {}", objToken, result.getMsg());
-                return null;
-            }
+            // 旧版文档使用/doc接口
+            if ("doc".equalsIgnoreCase(node.getObjType())) {
+                FeishuResult<FeishuDocBlocks> result = service.getDocBlocks(objToken);
+                if (result.getCode() != 0) {
+                    log.warn("Failed to load legacy document for node {}: {}", objToken, result.getMsg());
+                    return null;
+                }
+                if (result.getData() == null || result.getData().getBlocks() == null || result.getData().getBlocks().isEmpty()) {
+                    log.debug("Legacy node {} has no content", objToken);
+                    return null;
+                }
+                return createDocumentFromNodeBlocks(objToken, node, result.getData());
+            } else { // 默认按docx处理
+                FeishuResult<FeishuDocContent> result = service.getDocxRawContent(objToken);
+                if (result.getCode() != 0) {
+                    log.warn("Failed to load document for node {}: {}", objToken, result.getMsg());
+                    return null;
+                }
 
-            if (result.getData() == null || StringUtils.isEmpty(result.getData().getContent())) {
-                log.debug("Node {} has no content", objToken);
-                return null;
-            }
+                if (result.getData() == null || StringUtils.isEmpty(result.getData().getContent())) {
+                    log.debug("Node {} has no content", objToken);
+                    return null;
+                }
 
-            return createDocumentFromNode(objToken, node, result.getData());
+                return createDocumentFromNode(objToken, node, result.getData());
+            }
         } catch (Exception e) {
             log.error("Error loading document for node {}: {}", node.getNodeToken(), e.getMessage());
             return null;
@@ -237,6 +264,88 @@ public class FeishuDocLoader extends BaseLoader {
 
         document.setMetadata(metadata);
         return document;
+    }
+
+    /**
+     * 将旧版(doc)文档块拼接为纯文本，并构造Document
+     */
+    private Document createDocumentFromBlocks(String docToken, FeishuDocBlocks blocks) {
+        StringBuilder sb = new StringBuilder();
+        if (blocks != null && blocks.getBlocks() != null) {
+            for (FeishuDocBlocks.Block block : blocks.getBlocks()) {
+                String text = extractTextFromBlock(block.getText());
+                if (StringUtils.isNotEmpty(text)) {
+                    if (sb.length() > 0) sb.append('\n');
+                    sb.append(text);
+                }
+            }
+        }
+        Document document = new Document();
+        document.setUniqueId(docToken);
+        document.setPageContent(sb.toString());
+
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("source", "feishu");
+        metadata.put("doc_token", docToken);
+        metadata.put("doc_type", "doc");
+        metadata.put("url", domain + "/doc/" + docToken);
+        document.setMetadata(metadata);
+        return document;
+    }
+
+    /**
+     * 将旧版(doc)文档块拼接为纯文本，并构造包含节点信息的Document
+     */
+    private Document createDocumentFromNodeBlocks(String objToken, FeishuNodeList.Node node, FeishuDocBlocks blocks) {
+        StringBuilder sb = new StringBuilder();
+        if (blocks != null && blocks.getBlocks() != null) {
+            for (FeishuDocBlocks.Block block : blocks.getBlocks()) {
+                String text = extractTextFromBlock(block.getText());
+                if (StringUtils.isNotEmpty(text)) {
+                    if (sb.length() > 0) sb.append('\n');
+                    sb.append(text);
+                }
+            }
+        }
+        Document document = new Document();
+        document.setUniqueId(objToken);
+        document.setPageContent(sb.toString());
+
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("source", "feishu");
+        metadata.put("space_id", spaceId);
+        metadata.put("doc_token", objToken);
+        metadata.put("node_token", node.getNodeToken());
+        metadata.put("doc_type", "doc");
+        metadata.put("title", node.getTitle());
+        metadata.put("url", domain + "/doc/" + objToken);
+        document.setMetadata(metadata);
+        return document;
+    }
+
+    /**
+     * 从旧版文档块结构中尽可能提取纯文本
+     */
+    @SuppressWarnings("unchecked")
+    private String extractTextFromBlock(Map<String, Object> text) {
+        if (text == null) return "";
+        Object plain = text.get("text");
+        if (plain instanceof String) {
+            return (String) plain;
+        }
+        Object elements = text.get("elements");
+        if (elements instanceof List) {
+            StringBuilder sb = new StringBuilder();
+            for (Object el : (List<?>) elements) {
+                if (el instanceof Map) {
+                    Object t = ((Map<String, Object>) el).get("text");
+                    if (t instanceof String) sb.append((String) t);
+                }
+            }
+            return sb.toString();
+        }
+        // 兜底输出
+        return text.toString();
     }
     
     @Override

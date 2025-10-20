@@ -82,8 +82,10 @@ public class DingTalkDocLoader extends BaseLoader {
             return loadSingleDocument();
         } else if (StringUtils.isNotEmpty(workspaceId)) {
             return loadWorkspaceDocuments();
+        } else if (StringUtils.isNotEmpty(userId)) {
+            return loadUserWorkspaces();
         } else {
-            log.warn("Neither docId nor workspaceId is provided, returning empty list");
+            log.warn("Neither docId, workspaceId nor userId is provided, returning empty list");
             return new ArrayList<>();
         }
     }
@@ -179,6 +181,42 @@ public class DingTalkDocLoader extends BaseLoader {
     }
 
     /**
+     * 根据用户ID加载其可见的所有知识库中的文档
+     */
+    private List<Document> loadUserWorkspaces() {
+        List<Document> allDocuments = new ArrayList<>();
+        try {
+            DingTalkResult<DingTalkWorkspaceList> wsResult = service.getWorkspaceList(userId);
+            if (wsResult.getErrCode() != 0) {
+                log.error("Failed to load workspace list for user {}: {}", userId, wsResult.getErrMsg());
+                return allDocuments;
+            }
+            DingTalkWorkspaceList wsList = wsResult.getResult();
+            if (wsList == null || wsList.getWorkspaceList() == null || wsList.getWorkspaceList().isEmpty()) {
+                log.warn("No workspaces found for user {}", userId);
+                return allDocuments;
+            }
+            String originalWorkspaceId = this.workspaceId;
+            try {
+                for (DingTalkWorkspaceList.Workspace ws : wsList.getWorkspaceList()) {
+                    this.workspaceId = ws.getWorkspaceId();
+                    List<Document> docs = loadWorkspaceDocuments();
+                    if (docs != null && !docs.isEmpty()) {
+                        allDocuments.addAll(docs);
+                    }
+                }
+            } finally {
+                this.workspaceId = originalWorkspaceId;
+            }
+            log.info("Loaded {} documents from DingTalk user {}'s workspaces", allDocuments.size(), userId);
+            return allDocuments;
+        } catch (Exception e) {
+            log.error("Error loading DingTalk documents for user {}", userId, e);
+            throw new RuntimeException("Failed to load DingTalk user workspaces: " + userId, e);
+        }
+    }
+
+    /**
      * 从文档信息加载完整文档
      *
      * @param docInfo 文档信息
@@ -243,6 +281,15 @@ public class DingTalkDocLoader extends BaseLoader {
                 return load();
             } finally {
                 this.workspaceId = originalWorkspaceId;
+            }
+        } else if (documentMeta.get("userId") != null) {
+            String tempUserId = (String) documentMeta.get("userId");
+            String originalUserId = this.userId;
+            try {
+                this.userId = tempUserId;
+                return load();
+            } finally {
+                this.userId = originalUserId;
             }
         }
         return load();
