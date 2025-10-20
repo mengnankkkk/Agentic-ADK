@@ -22,13 +22,14 @@ import static com.alibaba.langengine.tencentmap.sdk.TencentMapConstant.TENCENT_M
 
 public class TencentMapConfiguration {
 
-    /**
-     * Tencent Map API key, retrieved from work properties
-     */
-    public static String TENCENT_MAP_API_KEY = WorkPropertiesUtils.get("tencent_map_api_key");
+	/**
+	 * Tencent Map API key, retrieved from work properties
+	 */
+	public static String TENCENT_MAP_API_KEY = WorkPropertiesUtils.get("tencent_map_api_key");
 
-    /**
-     * Tencent Map API base URL, defaults to the constant BASE_URL if not configured
-     */
-    public static String TENCENT_MAP_API_URL = WorkPropertiesUtils.get("tencent_map_api_url", TENCENT_MAP_BASE_URL);
+	/**
+	 * Tencent Map API base URL, defaults to the constant BASE_URL if not configured
+	 */
+	public static String TENCENT_MAP_API_URL = WorkPropertiesUtils.get("tencent_map_api_url", TENCENT_MAP_BASE_URL);
+
 }

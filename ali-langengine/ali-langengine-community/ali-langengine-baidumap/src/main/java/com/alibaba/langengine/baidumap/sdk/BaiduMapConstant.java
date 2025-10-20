@@ -18,22 +18,24 @@ package com.alibaba.langengine.baidumap.sdk;
 
 public final class BaiduMapConstant {
 
-    private BaiduMapConstant() {
+	private BaiduMapConstant() {
 
-    }
+	}
 
-    /**
-     * API Base Url
-     */
-    public static final String BAIDU_MAP_BASE_URL = "https://api.map.baidu.com";
+	/**
+	 * API Base Url
+	 */
+	public static final String BAIDU_MAP_BASE_URL = "https://api.map.baidu.com";
 
-    /**
-     * The default timeout in seconds for API requests.
-     */
-    public static int DEFAULT_TIMEOUT = 30;
+	/**
+	 * The default timeout in seconds for API requests.
+	 */
+	public static int DEFAULT_TIMEOUT = 30;
 
-    public static final String PLACE_SEARCH_API_ENDPOINT = "/place/v3/region";
+	public static final String PLACE_SEARCH_API_ENDPOINT = "/place/v3/region";
 
-    public static final String WEATHER_API_ENDPOINT = "/weather/v1";
+	public static final String WEATHER_API_ENDPOINT = "/weather/v1";
+
+	public static final String IP_API_ENDPOINT = "/location/ip";
 
 }

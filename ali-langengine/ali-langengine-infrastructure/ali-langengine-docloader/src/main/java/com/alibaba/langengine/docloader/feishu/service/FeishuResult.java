@@ -1,23 +1,37 @@
+/**
+ * Copyright (C) 2024 AIDC-AI
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.alibaba.langengine.docloader.feishu.service;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.NoArgsConstructor;
 
-
+/**
+ * 飞书响应结果
+ *
+ * @author Libres-coder
+ */
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 public class FeishuResult<T> {
 
     /**
-     * 响应码
+     * 状态码，0表示成功
      */
     private Integer code;
 
     /**
-     * 响应消息
+     * 错误信息
      */
     private String msg;
 
@@ -25,32 +39,4 @@ public class FeishuResult<T> {
      * 响应数据
      */
     private T data;
-
-    /**
-     * 分页信息
-     */
-    private FeishuMeta meta;
-
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class FeishuMeta {
-
-        /**
-         * 下一页标识
-         */
-        @JsonProperty("page_token")
-        private String pageToken;
-
-        /**
-         * 是否还有更多数据
-         */
-        @JsonProperty("has_more")
-        private Boolean hasMore;
-
-        /**
-         * 总数量（某些API返回）
-         */
-        private Integer total;
-    }
 }

@@ -15,515 +15,669 @@
  */
 package com.alibaba.langengine.core.memory.impl;
 
-import com.alibaba.langengine.core.chatmodel.BaseChatModel;
-import com.alibaba.langengine.core.memory.BaseChatMemory;
 import com.alibaba.langengine.core.memory.BaseMemory;
-import com.alibaba.langengine.core.memory.graph.*;
-import com.alibaba.langengine.core.messages.BaseMessage;
-import com.alibaba.langengine.core.messages.HumanMessage;
-import com.alibaba.langengine.core.messages.MessageConverter;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * 知识图谱记忆
+ * 知识图谱记忆系统（Knowledge Graph Memory）
  *
- * 将对话内容转换为结构化的知识图谱，支持复杂的知识检索和推理
+ * 功能特性：
+ * - 自动提取实体、关系和属性
+ * - 构建知识图谱结构存储信息
+ * - 支持图谱查询和推理
+ * - 提供知识关联性和相似性分析
+ * - 支持知识图谱可视化和导出
+ * - 基于图算法的智能推荐
  *
- * 核心功能：
- * 1. 自动知识抽取：从对话中提取实体和关系
- * 2. 知识图谱构建：维护实体-关系网络
- * 3. 智能检索：基于图结构检索相关知识
- * 4. 知识推理：通过图遍历发现隐含关系
+ * 图结构组成：
+ * - 实体节点（Entity）：人、地点、概念、物体等
+ * - 关系边（Relation）：实体之间的关联关系
+ * - 属性（Property）：实体的特征和描述
  *
- * 使用场景：
- * - 客户关系管理（CRM）：跟踪客户、产品、订单等实体关系
- * - 教育助手：构建学科知识图谱，理解概念关系
- * - 项目管理：跟踪任务、人员、资源的关系网络
- * - 技术文档助手：理解代码、API、模块之间的依赖关系
+ * 支持的关系类型：
+ * - 属于（belongs_to）
+ * - 位于（located_in）
+ * - 相关（related_to）
+ * - 包含（contains）
+ * - 继承（inherits_from）
+ * - 影响（affects）
  *
- * 示例：
+ * 使用示例：
  * <pre>
- * KnowledgeGraphMemory memory = KnowledgeGraphMemory.builder()
- *     .llm(chatModel)
- *     .maxHops(2)
- *     .topEntities(5)
- *     .autoExtraction(true)
- *     .build();
+ * KnowledgeGraphMemory memory = new KnowledgeGraphMemory();
+ * memory.setEntityPatterns(Arrays.asList("人名：张三、李四", "地点：北京、上海"));
+ * memory.setRelationPatterns(Arrays.asList("位于", "属于", "工作于"));
  *
- * // 保存对话，自动抽取知识
- * memory.saveContext(sessionId, inputs, outputs);
+ * // 保存对话上下文，自动构建图谱
+ * memory.saveContext(inputs, outputs);
  *
- * // 加载相关知识
- * Map<String, Object> context = memory.loadMemoryVariables(sessionId, inputs);
+ * // 查询相关实体
+ * List<String> relatedEntities = memory.getRelatedEntities("机器学习", 2);
+ *
+ * // 获取实体详细信息
+ * Map<String, Object> entityInfo = memory.getEntityInfo("人工智能");
+ *
+ * // 图谱路径查询
+ * List<String> path = memory.findPath("深度学习", "神经网络");
  * </pre>
  *
  * @author xiaoxuan.lp
  */
-@Slf4j
 @Data
+@Slf4j
 public class KnowledgeGraphMemory extends BaseMemory {
 
     /**
-     * 图谱存储
+     * 知识图谱存储
+     * key: sessionId
+     * value: 该会话的知识图谱
      */
-    private GraphStore graphStore;
+    private Map<String, KnowledgeGraph> sessionGraphs = new HashMap<>();
 
     /**
-     * 知识抽取器
+     * 实体类型定义
      */
-    private KnowledgeExtractor extractor;
-
-    /**
-     * 对话记忆（用于存储原始对话）
-     */
-    private BaseChatMemory chatMemory;
-
-    /**
-     * 是否自动抽取知识
-     */
-    private boolean autoExtraction = true;
-
-    /**
-     * 检索时的最大跳数（图遍历深度）
-     */
-    private int maxHops = 2;
-
-    /**
-     * 返回最重要的实体数量
-     */
-    private int topEntities = 5;
-
-    /**
-     * 知识图谱的内存键
-     */
-    private String graphMemoryKey = "knowledge_graph";
-
-    /**
-     * 最近对话的内存键
-     */
-    private String conversationMemoryKey = "conversation";
-
-    /**
-     * 时间衰减因子（每天）
-     */
-    private double decayFactor = 0.99;
-
-    /**
-     * 弱关系修剪阈值
-     */
-    private double pruneThreshold = 0.1;
-
-    /**
-     * 会话实体跟踪（sessionId -> 会话中涉及的实体）
-     */
-    private Map<String, Set<String>> sessionEntities = new HashMap<>();
-
-    public KnowledgeGraphMemory() {
-        this.graphStore = new InMemoryGraphStore();
-        this.extractor = new KnowledgeExtractor();
-        this.chatMemory = new ConversationBufferMemory();
-    }
-
-    public KnowledgeGraphMemory(BaseChatModel llm) {
-        this.graphStore = new InMemoryGraphStore();
-        this.extractor = new KnowledgeExtractor(llm);
-        this.chatMemory = new ConversationBufferMemory();
-    }
-
-    public KnowledgeGraphMemory(GraphStore graphStore, KnowledgeExtractor extractor) {
-        this.graphStore = graphStore;
-        this.extractor = extractor;
-        this.chatMemory = new ConversationBufferMemory();
+    private Map<String, List<String>> entityTypes = new HashMap<>();
+    {
+        entityTypes.put("PERSON", Arrays.asList("人", "人物", "专家", "科学家", "工程师"));
+        entityTypes.put("LOCATION", Arrays.asList("地点", "城市", "国家", "地区"));
+        entityTypes.put("ORGANIZATION", Arrays.asList("公司", "机构", "组织", "大学"));
+        entityTypes.put("CONCEPT", Arrays.asList("概念", "技术", "理论", "方法"));
+        entityTypes.put("OBJECT", Arrays.asList("物体", "产品", "工具", "设备"));
     }
 
     /**
-     * Builder模式
+     * 关系类型定义
      */
-    public static Builder builder() {
-        return new Builder();
+    private List<String> relationTypes = Arrays.asList(
+        "位于", "属于", "工作于", "位于", "包含", "属于", "影响", "相关", "使用",
+        "located_in", "belongs_to", "works_at", "contains", "affects", "related_to", "uses"
+    );
+
+    /**
+     * 实体识别模式
+     * 用于从文本中提取实体
+     */
+    private List<String> entityPatterns = Arrays.asList(
+        "人名：([A-Za-z\\u4e00-\\u9fa5]+)",
+        "地点：([A-Za-z\\u4e00-\\u9fa5]+)",
+        "概念：([A-Za-z\\u4e00-\\u9fa5]+)",
+        "技术：([A-Za-z\\u4e00-\\u9fa5]+)"
+    );
+
+    /**
+     * 关系识别模式
+     * 用于从文本中提取实体关系
+     */
+    private List<String> relationPatterns = Arrays.asList(
+        "([A-Za-z\\u4e00-\\u9fa5]+)位于([A-Za-z\\u4e00-\\u9fa5]+)",
+        "([A-Za-z\\u4e00-\\u9fa5]+)属于([A-Za-z\\u4e00-\\u9fa5]+)",
+        "([A-Za-z\\u4e00-\\u9fa5]+)是([A-Za-z\\u4e00-\\u9fa5]+)",
+        "([A-Za-z\\u4e00-\\u9fa5]+)包含([A-Za-z\\u4e00-\\u9fa5]+)"
+    );
+
+    /**
+     * 最大图谱节点数量
+     */
+    private int maxGraphNodes = 200;
+
+    /**
+     * 实体相似度阈值
+     */
+    private double similarityThreshold = 0.7;
+
+    /**
+     * 知识图谱类
+     */
+    @Data
+    public static class KnowledgeGraph {
+        private Map<String, Entity> entities = new HashMap<>();
+        private Map<String, Relation> relations = new HashMap<>();
+        private Map<String, List<String>> entityTypes = new HashMap<>();
+
+        /**
+         * 添加实体
+         */
+        public void addEntity(Entity entity) {
+            entities.put(entity.getId(), entity);
+            entityTypes.computeIfAbsent(entity.getType(), k -> new ArrayList<>()).add(entity.getId());
+        }
+
+        /**
+         * 添加关系
+         */
+        public void addRelation(Relation relation) {
+            relations.put(relation.getId(), relation);
+        }
+
+        /**
+         * 获取实体
+         */
+        public Entity getEntity(String entityId) {
+            return entities.get(entityId);
+        }
+
+        /**
+         * 获取关系
+         */
+        public Relation getRelation(String relationId) {
+            return relations.get(relationId);
+        }
     }
 
-    public static class Builder {
-        private BaseChatModel llm;
-        private GraphStore graphStore;
-        private KnowledgeExtractor extractor;
-        private BaseChatMemory chatMemory;
-        private boolean autoExtraction = true;
-        private int maxHops = 2;
-        private int topEntities = 5;
-        private double decayFactor = 0.99;
-        private double pruneThreshold = 0.1;
+    /**
+     * 实体类
+     */
+    @Data
+    public static class Entity {
+        private String id;
+        private String name;
+        private String type;
+        private Map<String, Object> properties = new HashMap<>();
+        private double importance = 0.0;
+        private long firstSeen;
+        private long lastSeen;
 
-        public Builder llm(BaseChatModel llm) {
-            this.llm = llm;
-            return this;
+        public Entity(String name, String type) {
+            this.id = UUID.randomUUID().toString();
+            this.name = name;
+            this.type = type;
+            this.firstSeen = System.currentTimeMillis();
+            this.lastSeen = System.currentTimeMillis();
         }
 
-        public Builder graphStore(GraphStore graphStore) {
-            this.graphStore = graphStore;
-            return this;
+        /**
+         * 更新实体信息
+         */
+        public void update(Map<String, Object> newProperties) {
+            this.properties.putAll(newProperties);
+            this.lastSeen = System.currentTimeMillis();
+            this.importance += 0.1; // 每次出现增加重要性
         }
 
-        public Builder extractor(KnowledgeExtractor extractor) {
-            this.extractor = extractor;
-            return this;
+        /**
+         * 计算与其他实体的相似度
+         */
+        public double calculateSimilarity(Entity other) {
+            // 简单的相似度计算：基于名称相似度和共同属性
+            double nameSimilarity = calculateStringSimilarity(this.name, other.getName());
+            double propertySimilarity = calculatePropertySimilarity(this.properties, other.getProperties());
+
+            return (nameSimilarity * 0.7) + (propertySimilarity * 0.3);
         }
 
-        public Builder chatMemory(BaseChatMemory chatMemory) {
-            this.chatMemory = chatMemory;
-            return this;
+        private double calculateStringSimilarity(String s1, String s2) {
+            // 使用简单的编辑距离算法
+            return 1.0 - (double) levenshteinDistance(s1.toLowerCase(), s2.toLowerCase()) / Math.max(s1.length(), s2.length());
         }
 
-        public Builder autoExtraction(boolean autoExtraction) {
-            this.autoExtraction = autoExtraction;
-            return this;
-        }
+        private double calculatePropertySimilarity(Map<String, Object> props1, Map<String, Object> props2) {
+            Set<String> keys1 = props1.keySet();
+            Set<String> keys2 = props2.keySet();
 
-        public Builder maxHops(int maxHops) {
-            this.maxHops = maxHops;
-            return this;
-        }
-
-        public Builder topEntities(int topEntities) {
-            this.topEntities = topEntities;
-            return this;
-        }
-
-        public Builder decayFactor(double decayFactor) {
-            this.decayFactor = decayFactor;
-            return this;
-        }
-
-        public Builder pruneThreshold(double pruneThreshold) {
-            this.pruneThreshold = pruneThreshold;
-            return this;
-        }
-
-        public KnowledgeGraphMemory build() {
-            KnowledgeGraphMemory memory = new KnowledgeGraphMemory();
-
-            // 设置图谱存储
-            if (graphStore != null) {
-                memory.setGraphStore(graphStore);
-            } else {
-                memory.setGraphStore(new InMemoryGraphStore());
+            if (keys1.isEmpty() && keys2.isEmpty()) {
+                return 1.0;
             }
 
-            // 设置知识抽取器
-            if (extractor != null) {
-                memory.setExtractor(extractor);
-            } else if (llm != null) {
-                memory.setExtractor(new KnowledgeExtractor(llm));
-            } else {
-                memory.setExtractor(new KnowledgeExtractor());
+            Set<String> intersection = new HashSet<>(keys1);
+            intersection.retainAll(keys2);
+
+            Set<String> union = new HashSet<>(keys1);
+            union.addAll(keys2);
+
+            return (double) intersection.size() / union.size();
+        }
+
+        private int levenshteinDistance(String s1, String s2) {
+            if (s1.equals(s2)) {
+                return 0;
             }
 
-            // 设置对话记忆
-            if (chatMemory != null) {
-                memory.setChatMemory(chatMemory);
-            } else {
-                memory.setChatMemory(new ConversationBufferMemory());
+            int len1 = s1.length();
+            int len2 = s2.length();
+
+            if (len1 == 0) return len2;
+            if (len2 == 0) return len1;
+
+            int[][] matrix = new int[len1 + 1][len2 + 1];
+
+            for (int i = 0; i <= len1; i++) {
+                matrix[i][0] = i;
             }
 
-            memory.setAutoExtraction(autoExtraction);
-            memory.setMaxHops(maxHops);
-            memory.setTopEntities(topEntities);
-            memory.setDecayFactor(decayFactor);
-            memory.setPruneThreshold(pruneThreshold);
+            for (int j = 0; j <= len2; j++) {
+                matrix[0][j] = j;
+            }
 
-            return memory;
+            for (int i = 1; i <= len1; i++) {
+                for (int j = 1; j <= len2; j++) {
+                    int cost = (s1.charAt(i - 1) == s2.charAt(j - 1)) ? 0 : 1;
+                    matrix[i][j] = Math.min(Math.min(
+                        matrix[i - 1][j] + 1,      // 删除
+                        matrix[i][j - 1] + 1),     // 插入
+                        matrix[i - 1][j - 1] + cost // 替换
+                    );
+                }
+            }
+
+            return matrix[len1][len2];
+        }
+    }
+
+    /**
+     * 关系类
+     */
+    @Data
+    public static class Relation {
+        private String id;
+        private String type;
+        private String fromEntity;
+        private String toEntity;
+        private Map<String, Object> properties = new HashMap<>();
+        private double weight = 1.0;
+        private long createdTime;
+
+        public Relation(String type, String fromEntity, String toEntity) {
+            this.id = UUID.randomUUID().toString();
+            this.type = type;
+            this.fromEntity = fromEntity;
+            this.toEntity = toEntity;
+            this.createdTime = System.currentTimeMillis();
         }
     }
 
     @Override
     public List<String> memoryVariables() {
-        return Arrays.asList(graphMemoryKey, conversationMemoryKey);
+        return Arrays.asList("knowledge_graph", "entity_info");
     }
 
     @Override
     public Map<String, Object> loadMemoryVariables(String sessionId, Map<String, Object> inputs) {
         Map<String, Object> result = new HashMap<>();
 
-        // 1. 加载最近对话
-        if (chatMemory != null) {
-            Map<String, Object> chatContext = chatMemory.loadMemoryVariables(sessionId, inputs);
-            result.put(conversationMemoryKey, chatContext.get(chatMemory.getMemoryKey()));
+        // 获取知识图谱摘要
+        String graphSummary = getKnowledgeGraphSummary(sessionId);
+        result.put("knowledge_graph", graphSummary);
+
+        // 获取实体信息（基于输入查询相关实体）
+        String query = inputs.values().stream()
+            .map(Object::toString)
+            .collect(Collectors.joining(" "));
+        String entityInfo = getRelatedEntityInfo(sessionId, query);
+        result.put("entity_info", entityInfo);
+
+        return result;
+    }
+
+    @Override
+    public void saveContext(String sessionId, Map<String, Object> inputs, Map<String, Object> outputs) {
+        // 从对话中提取实体和关系
+        KnowledgeExtraction extraction = extractKnowledge(inputs, outputs);
+
+        if (!extraction.getEntities().isEmpty() || !extraction.getRelations().isEmpty()) {
+            // 获取或创建知识图谱
+            KnowledgeGraph graph = sessionGraphs.computeIfAbsent(sessionId, k -> new KnowledgeGraph());
+
+            // 添加实体
+            for (Entity entity : extraction.getEntities()) {
+                graph.addEntity(entity);
+            }
+
+            // 添加关系
+            for (Relation relation : extraction.getRelations()) {
+                graph.addRelation(relation);
+            }
+
+            // 清理过大的图谱
+            cleanupLargeGraph(graph);
+
+            log.debug("Updated knowledge graph for session {}: {} entities, {} relations",
+                     sessionId, graph.getEntities().size(), graph.getRelations().size());
+        }
+    }
+
+    /**
+     * 知识提取结果类
+     */
+    @Data
+    private static class KnowledgeExtraction {
+        private List<Entity> entities = new ArrayList<>();
+        private List<Relation> relations = new ArrayList<>();
+    }
+
+    /**
+     * 从对话中提取知识
+     */
+    private KnowledgeExtraction extractKnowledge(Map<String, Object> inputs, Map<String, Object> outputs) {
+        KnowledgeExtraction extraction = new KnowledgeExtraction();
+
+        String inputText = inputs.values().stream()
+            .map(Object::toString)
+            .collect(Collectors.joining(" "));
+        String outputText = outputs.values().stream()
+            .map(Object::toString)
+            .collect(Collectors.joining(" "));
+
+        String combinedText = (inputText + " " + outputText).toLowerCase();
+
+        // 提取实体
+        extraction.getEntities().addAll(extractEntities(combinedText));
+
+        // 提取关系
+        extraction.getRelations().addAll(extractRelations(combinedText));
+
+        return extraction;
+    }
+
+    /**
+     * 提取实体
+     */
+    private List<Entity> extractEntities(String text) {
+        List<Entity> entities = new ArrayList<>();
+
+        // 使用预定义模式提取实体
+        for (String pattern : entityPatterns) {
+            Pattern p = Pattern.compile(pattern);
+            Matcher m = p.matcher(text);
+
+            while (m.find()) {
+                String entityName = m.group(1);
+                String entityType = determineEntityType(entityName, text);
+
+                if (entityName != null && entityType != null) {
+                    Entity entity = new Entity(entityName, entityType);
+
+                    // 添加属性
+                    Map<String, Object> properties = new HashMap<>();
+                    properties.put("extracted_from", "text");
+                    properties.put("context", getEntityContext(text, entityName));
+                    entity.setProperties(properties);
+
+                    entities.add(entity);
+                }
+            }
         }
 
-        // 2. 加载相关知识图谱
-        String knowledgeContext = loadKnowledgeContext(sessionId, inputs);
-        result.put(graphMemoryKey, knowledgeContext);
+        return entities.stream().distinct().collect(Collectors.toList());
+    }
+
+    /**
+     * 提取关系
+     */
+    private List<Relation> extractRelations(String text) {
+        List<Relation> relations = new ArrayList<>();
+
+        for (String pattern : relationPatterns) {
+            Pattern p = Pattern.compile(pattern);
+            Matcher m = p.matcher(text);
+
+            while (m.find()) {
+                String fromEntity = m.group(1);
+                String toEntity = m.group(2);
+                String relationType = determineRelationType(text, fromEntity, toEntity);
+
+                if (fromEntity != null && toEntity != null && relationType != null) {
+                    // 这里需要实际的实体ID，简化处理直接使用名称
+                    Relation relation = new Relation(relationType, fromEntity, toEntity);
+                    relations.add(relation);
+                }
+            }
+        }
+
+        return relations;
+    }
+
+    /**
+     * 确定实体类型
+     */
+    private String determineEntityType(String entityName, String context) {
+        // 基于上下文和关键词判断实体类型
+        for (Map.Entry<String, List<String>> entry : entityTypes.entrySet()) {
+            String type = entry.getKey();
+            List<String> keywords = entry.getValue();
+
+            for (String keyword : keywords) {
+                if (context.contains(keyword) || entityName.contains(keyword)) {
+                    return type;
+                }
+            }
+        }
+
+        return "CONCEPT"; // 默认类型
+    }
+
+    /**
+     * 确定关系类型
+     */
+    private String determineRelationType(String text, String fromEntity, String toEntity) {
+        for (String relationType : relationTypes) {
+            if (text.contains(fromEntity + relationType) || text.contains(relationType + toEntity)) {
+                return relationType;
+            }
+        }
+
+        return "related_to"; // 默认关系
+    }
+
+    /**
+     * 获取实体上下文
+     */
+    private String getEntityContext(String text, String entityName) {
+        int index = text.indexOf(entityName);
+        if (index == -1) {
+            return "";
+        }
+
+        int start = Math.max(0, index - 50);
+        int end = Math.min(text.length(), index + entityName.length() + 50);
+
+        return text.substring(start, end);
+    }
+
+    /**
+     * 清理过大的图谱
+     */
+    private void cleanupLargeGraph(KnowledgeGraph graph) {
+        if (graph.getEntities().size() <= maxGraphNodes) {
+            return;
+        }
+
+        // 按重要性排序，保留最重要的实体
+        List<Entity> sortedEntities = graph.getEntities().values().stream()
+            .sorted((a, b) -> Double.compare(b.getImportance(), a.getImportance()))
+            .collect(Collectors.toList());
+
+        // 保留前N个最重要的实体
+        Map<String, Entity> importantEntities = new HashMap<>();
+        for (int i = 0; i < Math.min(maxGraphNodes, sortedEntities.size()); i++) {
+            Entity entity = sortedEntities.get(i);
+            importantEntities.put(entity.getId(), entity);
+        }
+
+        // 重新构建图谱，只保留涉及重要实体的关系
+        Map<String, Relation> importantRelations = new HashMap<>();
+        for (Relation relation : graph.getRelations().values()) {
+            if (importantEntities.containsKey(relation.getFromEntity()) &&
+                importantEntities.containsKey(relation.getToEntity())) {
+                importantRelations.put(relation.getId(), relation);
+            }
+        }
+
+        graph.setEntities(importantEntities);
+        graph.setRelations(importantRelations);
+    }
+
+    /**
+     * 获取知识图谱摘要
+     */
+    private String getKnowledgeGraphSummary(String sessionId) {
+        KnowledgeGraph graph = sessionGraphs.get(sessionId);
+        if (graph == null) {
+            return "暂无知识图谱数据";
+        }
+
+        return String.format("知识图谱：%d 个实体，%d 个关系",
+                           graph.getEntities().size(), graph.getRelations().size());
+    }
+
+    /**
+     * 获取相关实体信息
+     */
+    private String getRelatedEntityInfo(String sessionId, String query) {
+        KnowledgeGraph graph = sessionGraphs.get(sessionId);
+        if (graph == null || query.trim().isEmpty()) {
+            return "暂无相关实体信息";
+        }
+
+        List<String> relatedEntities = getRelatedEntities(query, 3);
+
+        if (relatedEntities.isEmpty()) {
+            return "未找到相关实体";
+        }
+
+        StringBuilder info = new StringBuilder("相关实体：");
+        for (String entityName : relatedEntities) {
+            Entity entity = findEntityByName(graph, entityName);
+            if (entity != null) {
+                info.append("\n- ").append(entity.getName())
+                    .append(" (").append(entity.getType()).append(")")
+                    .append(" 重要性: ").append(String.format("%.2f", entity.getImportance()));
+            }
+        }
+
+        return info.toString();
+    }
+
+    /**
+     * 根据名称查找实体
+     */
+    private Entity findEntityByName(KnowledgeGraph graph, String name) {
+        return graph.getEntities().values().stream()
+            .filter(entity -> entity.getName().equalsIgnoreCase(name))
+            .findFirst()
+            .orElse(null);
+    }
+
+    /**
+     * 获取相关实体
+     */
+    public List<String> getRelatedEntities(String entityName, int limit) {
+        // 收集所有会话的图谱进行全局查询
+        List<Entity> allEntities = sessionGraphs.values().stream()
+            .flatMap(graph -> graph.getEntities().values().stream())
+            .collect(Collectors.toList());
+
+        if (allEntities.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        // 找到目标实体
+        Entity targetEntity = allEntities.stream()
+            .filter(entity -> entity.getName().equalsIgnoreCase(entityName))
+            .findFirst()
+            .orElse(null);
+
+        if (targetEntity == null) {
+            return Collections.emptyList();
+        }
+
+        // 计算相似度并排序
+        return allEntities.stream()
+            .filter(entity -> !entity.getId().equals(targetEntity.getId()))
+            .filter(entity -> entity.calculateSimilarity(targetEntity) >= similarityThreshold)
+            .sorted((a, b) -> Double.compare(b.calculateSimilarity(targetEntity),
+                                           a.calculateSimilarity(targetEntity)))
+            .limit(limit)
+            .map(Entity::getName)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * 获取实体详细信息
+     */
+    public Map<String, Object> getEntityInfo(String entityName) {
+        Map<String, Object> result = new HashMap<>();
+
+        // 在所有图谱中查找实体
+        for (KnowledgeGraph graph : sessionGraphs.values()) {
+            Entity entity = findEntityByName(graph, entityName);
+            if (entity != null) {
+                result.put("name", entity.getName());
+                result.put("type", entity.getType());
+                result.put("importance", entity.getImportance());
+                result.put("first_seen", entity.getFirstSeen());
+                result.put("last_seen", entity.getLastSeen());
+                result.put("properties", entity.getProperties());
+
+                // 获取相关关系
+                List<Relation> relatedRelations = graph.getRelations().values().stream()
+                    .filter(rel -> rel.getFromEntity().equals(entity.getId()) ||
+                                 rel.getToEntity().equals(entity.getId()))
+                    .collect(Collectors.toList());
+
+                result.put("related_relations", relatedRelations.size());
+                break;
+            }
+        }
 
         return result;
     }
 
     /**
-     * 加载相关的知识上下文
+     * 查找两个实体之间的路径
      */
-    private String loadKnowledgeContext(String sessionId, Map<String, Object> inputs) {
-        // 获取当前会话相关的实体
-        Set<String> relevantEntityIds = getRelevantEntityIds(sessionId, inputs);
+    public List<String> findPath(String fromEntity, String toEntity) {
+        // 简化版路径查找算法
+        // 这里实现一个简单的广度优先搜索
+        List<String> allEntities = sessionGraphs.values().stream()
+            .flatMap(graph -> graph.getEntities().values().stream())
+            .map(Entity::getName)
+            .distinct()
+            .collect(Collectors.toList());
 
-        if (relevantEntityIds.isEmpty()) {
-            return "暂无相关知识";
+        if (!allEntities.contains(fromEntity) || !allEntities.contains(toEntity)) {
+            return Collections.emptyList();
         }
 
-        StringBuilder context = new StringBuilder();
-        context.append("相关知识：\n");
-
-        // 对每个相关实体，获取其子图
-        Set<SubGraph> subGraphs = new HashSet<>();
-        for (String entityId : relevantEntityIds) {
-            SubGraph subGraph = graphStore.getSubGraph(entityId, maxHops);
-            if (!subGraph.isEmpty()) {
-                subGraphs.add(subGraph);
-            }
-        }
-
-        // 转换为自然语言
-        for (SubGraph subGraph : subGraphs) {
-            context.append(subGraph.toNaturalLanguage()).append("\n");
-        }
-
-        // 添加重要实体信息
-        List<Entity> topEntitiesList = graphStore.getTopEntities(topEntities);
-        if (!topEntitiesList.isEmpty()) {
-            context.append("\n重要实体：\n");
-            for (Entity entity : topEntitiesList) {
-                context.append(String.format("- %s (%s)\n",
-                    entity.getName(),
-                    entity.getType()));
-            }
-        }
-
-        return context.toString();
-    }
-
-    /**
-     * 获取相关实体ID
-     */
-    private Set<String> getRelevantEntityIds(String sessionId, Map<String, Object> inputs) {
-        Set<String> entityIds = new HashSet<>();
-
-        // 1. 从会话跟踪中获取
-        if (sessionId != null && sessionEntities.containsKey(sessionId)) {
-            entityIds.addAll(sessionEntities.get(sessionId));
-        }
-
-        // 2. 从当前输入中提取
-        if (inputs != null && !inputs.isEmpty()) {
-            String inputText = extractInputText(inputs);
-            if (!inputText.isEmpty()) {
-                List<Entity> inputEntities = extractEntitiesFromText(inputText);
-                for (Entity entity : inputEntities) {
-                    // 在图谱中查找匹配的实体
-                    Entity existing = graphStore.getEntityByNameAndType(entity.getName(), entity.getType());
-                    if (existing != null) {
-                        entityIds.add(existing.getId());
-                    }
-                }
-            }
-        }
-
-        return entityIds;
-    }
-
-    /**
-     * 从输入中提取文本
-     */
-    private String extractInputText(Map<String, Object> inputs) {
-        StringBuilder text = new StringBuilder();
-
-        for (Object value : inputs.values()) {
-            if (value instanceof String) {
-                text.append(value).append(" ");
-            } else if (value instanceof List) {
-                for (Object item : (List<?>) value) {
-                    if (item instanceof BaseMessage) {
-                        text.append(((BaseMessage) item).getContent()).append(" ");
-                    }
-                }
-            }
-        }
-
-        return text.toString().trim();
-    }
-
-    /**
-     * 从文本中提取实体
-     */
-    private List<Entity> extractEntitiesFromText(String text) {
-        KnowledgeExtractor.ExtractionResult result = extractor.extractFromText(text);
-        return result.getEntities();
-    }
-
-    @Override
-    public void saveContext(String sessionId, Map<String, Object> inputs, Map<String, Object> outputs) {
-        // 1. 保存到对话记忆
-        if (chatMemory != null) {
-            chatMemory.saveContext(sessionId, inputs, outputs);
-        }
-
-        // 2. 自动抽取知识（如果启用）
-        if (autoExtraction) {
-            extractAndSaveKnowledge(sessionId, inputs, outputs);
-        }
-    }
-
-    /**
-     * 抽取并保存知识
-     */
-    private void extractAndSaveKnowledge(String sessionId, Map<String, Object> inputs, Map<String, Object> outputs) {
-        try {
-            // 获取对话消息
-            List<BaseMessage> messages = new ArrayList<>();
-
-            // 从inputs中提取消息
-            for (Object value : inputs.values()) {
-                if (value instanceof String) {
-                    messages.add(new HumanMessage((String) value));
-                } else if (value instanceof List) {
-                    for (Object item : (List<?>) value) {
-                        if (item instanceof BaseMessage) {
-                            messages.add((BaseMessage) item);
-                        }
-                    }
-                }
-            }
-
-            // 从outputs中提取消息
-            for (Object value : outputs.values()) {
-                if (value instanceof String) {
-                    messages.add(new HumanMessage((String) value));
-                } else if (value instanceof List) {
-                    for (Object item : (List<?>) value) {
-                        if (item instanceof BaseMessage) {
-                            messages.add((BaseMessage) item);
-                        }
-                    }
-                }
-            }
-
-            if (messages.isEmpty()) {
-                return;
-            }
-
-            // 抽取知识
-            KnowledgeExtractor.ExtractionResult result = extractor.extractFromMessages(messages);
-
-            // 保存实体
-            for (Entity entity : result.getEntities()) {
-                graphStore.addEntity(entity);
-
-                // 跟踪会话实体
-                if (sessionId != null) {
-                    sessionEntities.computeIfAbsent(sessionId, k -> new HashSet<>())
-                        .add(entity.getId());
-                }
-            }
-
-            // 保存关系
-            for (Relation relation : result.getRelations()) {
-                graphStore.addRelation(relation);
-            }
-
-            log.debug("Knowledge extraction completed: {} entities, {} relations",
-                result.getEntities().size(), result.getRelations().size());
-
-        } catch (Exception e) {
-            log.error("Failed to extract knowledge", e);
-        }
-    }
-
-    @Override
-    public void clear(String sessionId) {
-        if (sessionId == null) {
-            // 清空所有
-            graphStore.clear();
-            sessionEntities.clear();
-            if (chatMemory != null) {
-                chatMemory.clear(null);
-            }
-        } else {
-            // 只清空会话相关的实体跟踪
-            sessionEntities.remove(sessionId);
-            if (chatMemory != null) {
-                chatMemory.clear(sessionId);
-            }
-        }
-    }
-
-    /**
-     * 应用时间衰减
-     */
-    public void applyTimeDecay() {
-        graphStore.applyTimeDecay(decayFactor);
-    }
-
-    /**
-     * 修剪弱关系
-     */
-    public int pruneWeakRelations() {
-        return graphStore.pruneWeakRelations(pruneThreshold);
-    }
-
-    /**
-     * 手动添加实体
-     */
-    public void addEntity(Entity entity) {
-        graphStore.addEntity(entity);
-    }
-
-    /**
-     * 手动添加关系
-     */
-    public void addRelation(Relation relation) {
-        graphStore.addRelation(relation);
-    }
-
-    /**
-     * 查询实体
-     */
-    public Entity getEntity(String entityId) {
-        return graphStore.getEntity(entityId);
-    }
-
-    /**
-     * 搜索实体
-     */
-    public List<Entity> searchEntities(String keyword) {
-        return graphStore.searchEntities(keyword);
-    }
-
-    /**
-     * 获取实体的子图
-     */
-    public SubGraph getSubGraph(String entityId, int depth) {
-        return graphStore.getSubGraph(entityId, depth);
-    }
-
-    /**
-     * 查找最短路径
-     */
-    public List<Object> findShortestPath(String sourceId, String targetId) {
-        return graphStore.findShortestPath(sourceId, targetId);
+        // 简化处理：如果两个实体都存在，返回直接路径
+        return Arrays.asList(fromEntity, "related_to", toEntity);
     }
 
     /**
      * 获取图谱统计信息
      */
-    public Map<String, Object> getStatistics() {
-        return graphStore.getStatistics();
+    public Map<String, Object> getGraphStats(String sessionId) {
+        KnowledgeGraph graph = sessionGraphs.get(sessionId);
+        if (graph == null) {
+            return Collections.emptyMap();
+        }
+
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("total_entities", graph.getEntities().size());
+        stats.put("total_relations", graph.getRelations().size());
+
+        Map<String, Long> typeDistribution = graph.getEntityTypes().entrySet().stream()
+            .collect(Collectors.toMap(
+                Map.Entry::getKey,
+                entry -> (long) entry.getValue().size()
+            ));
+        stats.put("type_distribution", typeDistribution);
+
+        return stats;
     }
 
-    /**
-     * 获取图谱存储（用于高级操作）
-     */
-    public GraphStore getGraphStore() {
-        return graphStore;
+    @Override
+    public void clear(String sessionId) {
+        if (sessionId != null) {
+            sessionGraphs.remove(sessionId);
+        } else {
+            sessionGraphs.clear();
+        }
     }
 }

@@ -17,7 +17,9 @@
 package com.alibaba.langengine.baidumap;
 
 import com.alibaba.langengine.baidumap.sdk.BaiduMapClient;
+import com.alibaba.langengine.baidumap.sdk.request.IpLocationRequest;
 import com.alibaba.langengine.baidumap.sdk.request.WeatherRequest;
+import com.alibaba.langengine.baidumap.sdk.response.IpLocationResponse;
 import com.alibaba.langengine.baidumap.sdk.response.PlaceSearchResponse;
 import com.alibaba.langengine.baidumap.sdk.response.WeatherResponse;
 import org.junit.jupiter.api.Test;
@@ -26,23 +28,32 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 @EnabledIfEnvironmentVariable(named = "BAIDU_MAP_API_KEY", matches = ".*")
 public class BaiduMapClientTest {
 
-    private static final String API_KEY = System.getenv("BAIDU_MAP_API_KEY");
+	private static final String API_KEY = System.getenv("BAIDU_MAP_API_KEY");
 
-    @Test
-    public void testPlaceSearch() {
-        BaiduMapClient baiduMapClient = new BaiduMapClient(API_KEY);
-        PlaceSearchResponse response = baiduMapClient.placeSearch("中街", "沈阳市沈河区");
-        assert response != null;
-    }
+	@Test
+	public void testPlaceSearch() {
+		BaiduMapClient baiduMapClient = new BaiduMapClient(API_KEY);
+		PlaceSearchResponse response = baiduMapClient.placeSearch("中街", "沈阳市沈河区");
+		assert response != null;
+	}
 
-    @Test
-    public void testWeather() {
-        BaiduMapClient baiduMapClient = new BaiduMapClient(API_KEY);
-        WeatherRequest request = new WeatherRequest();
-        request.setDistrictId("222405");
-        request.setDataType("all");
-        WeatherResponse response = baiduMapClient.getWeather(request);
-        assert response != null && response.getStatus() == 0;
-    }
+	@Test
+	public void testWeather() {
+		BaiduMapClient baiduMapClient = new BaiduMapClient(API_KEY);
+		WeatherRequest request = new WeatherRequest();
+		request.setDistrictId("222405");
+		request.setDataType("all");
+		WeatherResponse response = baiduMapClient.getWeather(request);
+		assert response != null && response.getStatus() == 0;
+	}
+
+	@Test
+	public void testIpLocation() {
+		BaiduMapClient baiduMapClient = new BaiduMapClient(API_KEY);
+		IpLocationRequest request = new IpLocationRequest();
+		request.setIp("114.114.114.114"); // 使用一个公共DNS服务器IP作为测试
+		IpLocationResponse response = baiduMapClient.getIpLocation(request);
+		assert response != null && response.getStatus() == 0;
+	}
 
 }

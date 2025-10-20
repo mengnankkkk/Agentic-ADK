@@ -1,21 +1,39 @@
+/**
+ * Copyright (C) 2024 AIDC-AI
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.alibaba.langengine.docloader.feishu;
-
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.stream.Collectors;
 
 import com.alibaba.langengine.core.docloader.BaseLoader;
 import com.alibaba.langengine.core.indexes.Document;
-import com.alibaba.langengine.docloader.feishu.config.FeishuConfig;
-import com.alibaba.langengine.docloader.feishu.exception.FeishuDocLoaderException;
-import com.alibaba.langengine.docloader.feishu.service.FeishuDocInfo;
-import com.alibaba.langengine.docloader.feishu.service.FeishuResult;
-import com.alibaba.langengine.docloader.feishu.service.FeishuService;
-
+import com.alibaba.langengine.docloader.feishu.service.*;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
+/**
+ * 飞书文档加载器
+ *
+ * @author Libres-coder
+ */
 @Slf4j
 @Data
 public class FeishuDocLoader extends BaseLoader {
@@ -23,356 +41,225 @@ public class FeishuDocLoader extends BaseLoader {
     private FeishuService service;
 
     /**
-     * 应用Token，用于API认证
+     * 文档Token，用于加载单个文档
      */
-    private String appToken;
+    private String docToken;
 
     /**
-     * 文档ID，指定时只加载单个文档
+     * 知识库ID，用于批量加载知识库中的文档
      */
-    private String documentId;
+    private String spaceId;
 
     /**
-     * 批量加载的起始偏移量
+     * 分页大小，默认50
      */
-    private Integer offset = 0;
+    private Integer pageSize = 50;
 
     /**
-     * 批量加载的每页大小
+     * 文档类型：docx（新版文档）、doc（旧版文档）
      */
-    private Integer batchSize = FeishuConfig.DEFAULT_BATCH_SIZE;
+    private String docType = "docx";
 
     /**
-     * 飞书文档的域名
+     * 飞书开放平台域名
      */
-    private String domain = FeishuConfig.DEFAULT_DOMAIN;
+    private String domain = "https://open.feishu.cn";
 
-    /**
-     * 是否返回HTML内容
-     */
-    private boolean returnHtml = false;
-
-    /**
-     * I/O专用线程池
-     */
-    private ExecutorService ioExecutor;
-    
-
-
-    /**
-     * 构造函数
-     */
-    public FeishuDocLoader(String appToken) {
-        this.appToken = appToken;
-        this.service = new FeishuService();
-        this.ioExecutor = new ThreadPoolExecutor(
-            FeishuConfig.DEFAULT_CORE_POOL_SIZE, FeishuConfig.DEFAULT_MAX_POOL_SIZE, 
-            FeishuConfig.DEFAULT_KEEP_ALIVE_TIME, TimeUnit.SECONDS,
-            new LinkedBlockingQueue<>(100),
-            r -> new Thread(r, "feishu-doc-loader-" + System.currentTimeMillis()),
-            new ThreadPoolExecutor.CallerRunsPolicy()
-        );
+    public FeishuDocLoader(String appId, String appSecret, Long timeout) {
+        service = new FeishuService(appId, appSecret, Duration.ofSeconds(timeout));
     }
     
     /**
-     * 设置服务（用于测试）
-     */
-    public void setService(FeishuService service) {
-        this.service = service;
-    }
-
-    /**
-     * 加载文档
-     * 根据配置加载单个文档或批量加载文档
+     * 加载文档。
+     * 根据配置加载单个文档或批量加载知识库文档。
      *
      * @return 文档列表
      */
     @Override
     public List<Document> load() {
-        validateConfiguration();
-        return documentId == null || documentId.isEmpty() ? loadBatchDocuments() : loadSingleDocument();
-    }
-
-    /**
-     * 配置验证
-     */
-    private void validateConfiguration() {
-        if (service == null) {
-            throw new IllegalStateException("FeishuService not initialized");
-        }
-        if (appToken == null || appToken.isEmpty()) {
-            throw new IllegalStateException("appToken is required");
-        }
-        if (batchSize > FeishuConfig.MAX_BATCH_SIZE) {
-            log.warn("batchSize {} exceeds maximum {}, using maximum", batchSize, FeishuConfig.MAX_BATCH_SIZE);
-            batchSize = FeishuConfig.MAX_BATCH_SIZE;
+        if (StringUtils.isNotEmpty(docToken)) {
+            return loadSingleDocument();
+        } else if (StringUtils.isNotEmpty(spaceId)) {
+            return loadSpaceDocuments();
+        } else {
+            log.warn("Neither docToken nor spaceId is provided, returning empty list");
+            return new ArrayList<>();
         }
     }
-
+    
     /**
-     * 加载单个文档
+     * 加载单个文档。
+     * 当docToken配置时，只加载特定的文档。
+     *
+     * @return 单个文档的列表
      */
     private List<Document> loadSingleDocument() {
-        log.info("Loading single document: {}", documentId);
-        
         try {
-            FeishuResult<FeishuDocInfo> detailResult = service.getDocumentDetail(appToken, documentId);
-            if (detailResult == null || detailResult.getData() == null) {
-                log.warn("Document not found or empty result: {}", documentId);
-                return Collections.emptyList();
+            FeishuResult<FeishuDocContent> result = service.getDocxRawContent(docToken);
+            if (result.getCode() != 0) {
+                log.error("Failed to load Feishu document {}: {}", docToken, result.getMsg());
+                return new ArrayList<>();
             }
 
-            Document document = createDocumentFromInfo(documentId, detailResult.getData());
-            if (document == null) {
-                log.warn("Failed to create document from info: {}", documentId);
-                return Collections.emptyList();
+            if (result.getData() == null || StringUtils.isEmpty(result.getData().getContent())) {
+                log.warn("Feishu document {} has no content", docToken);
+                return new ArrayList<>();
             }
-            
-            return Collections.singletonList(document);
+
+            Document document = createDocumentFromContent(docToken, result.getData());
+            List<Document> documents = new ArrayList<>();
+            documents.add(document);
+            return documents;
         } catch (Exception e) {
-            log.error("Error loading single document {}: {}", documentId, e.getMessage(), e);
-            throw new FeishuDocLoaderException("LOAD_ERROR", "Failed to load document: " + documentId, e);
+            log.error("Error loading Feishu document: {}", docToken, e);
+            throw new RuntimeException("Failed to load Feishu document: " + docToken, e);
         }
     }
-
+    
     /**
-     * 批量加载文档
-     * 使用专用I/O线程池进行并发处理
+     * 批量加载知识库文档。
+     * 当spaceId配置时，批量加载知识库中的所有文档。
+     *
+     * @return 文档列表
      */
-    private List<Document> loadBatchDocuments() {
-        log.info("Starting batch document loading with batchSize: {}", batchSize);
-        
-        List<Document> documents = new ArrayList<>();
-        ConcurrentLinkedQueue<String> failedDocuments = new ConcurrentLinkedQueue<>();
-        int currentOffset = offset;
-        int totalProcessed = 0;
+    private List<Document> loadSpaceDocuments() {
+        List<Document> allDocuments = new ArrayList<>();
+        String pageToken = null;
+        boolean hasMore = true;
 
-        do {
-            FeishuResult<List<FeishuDocInfo>> batchResult = service.getDocumentList(appToken, currentOffset, batchSize);
-            List<FeishuDocInfo> docInfos = batchResult.getData();
-            
-            if (docInfos == null || docInfos.isEmpty()) {
-                log.info("No more documents found, stopping batch loading");
-                break;
+        try {
+            while (hasMore) {
+                FeishuResult<FeishuNodeList> result = service.getSpaceNodes(spaceId, pageToken, pageSize);
+                
+                if (result.getCode() != 0) {
+                    log.error("Failed to load space nodes: {}", result.getMsg());
+                    break;
+                }
+
+                FeishuNodeList nodeList = result.getData();
+                if (nodeList == null || nodeList.getItems() == null) {
+                    break;
+                }
+
+                // 过滤并加载文档类型的节点
+                List<Document> batchDocuments = nodeList.getItems().stream()
+                    .filter(node -> "docx".equals(node.getObjType()) || "doc".equals(node.getObjType()))
+                    .map(this::loadNodeDocument)
+                    .filter(java.util.Objects::nonNull)
+                    .collect(Collectors.toList());
+                
+                allDocuments.addAll(batchDocuments);
+
+                // 更新分页信息
+                hasMore = nodeList.getHasMore() != null && nodeList.getHasMore();
+                pageToken = nodeList.getPageToken();
             }
 
-            log.info("Processing batch: offset={}, size={}", currentOffset, docInfos.size());
-
-            // 并发获取文档详情
-            List<CompletableFuture<Document>> futures = docInfos.parallelStream()
-                .map(docInfo -> CompletableFuture.supplyAsync(() -> {
-                    try {
-                        return fetchDocumentDetail(docInfo.getDocumentId());
-                    } catch (Exception e) {
-                        log.warn("Failed to fetch document detail: {}", docInfo.getDocumentId(), e);
-                        failedDocuments.add(docInfo.getDocumentId());
-                        return null;
-                    }
-                }, ioExecutor))
-                .collect(Collectors.toList());
-
-            // 收集结果
-            List<Document> batchDocuments = futures.stream()
-                .map(CompletableFuture::join)
-                .filter(java.util.Objects::nonNull)
-                .collect(Collectors.toList());
-
-            documents.addAll(batchDocuments);
-            totalProcessed += docInfos.size();
-            currentOffset += batchSize;
-
-            log.info("Batch completed: processed={}, successful={}, total_processed={}", 
-                docInfos.size(), batchDocuments.size(), totalProcessed);
-
-        } while (true);
-
-        // 报告失败的文档
-        if (!failedDocuments.isEmpty()) {
-            log.warn("Failed to load {} documents: {}", failedDocuments.size(), failedDocuments);
+            log.info("Loaded {} documents from Feishu space {}", allDocuments.size(), spaceId);
+            return allDocuments;
+        } catch (Exception e) {
+            log.error("Error loading Feishu space documents: {}", spaceId, e);
+            throw new RuntimeException("Failed to load Feishu space documents: " + spaceId, e);
         }
+    }
+    
+    /**
+     * 加载知识库节点对应的文档
+     *
+     * @param node 知识库节点
+     * @return 文档对象或null（如果无法获取文档详情）
+     */
+    private Document loadNodeDocument(FeishuNodeList.Node node) {
+        try {
+            String objToken = node.getObjToken();
+            FeishuResult<FeishuDocContent> result = service.getDocxRawContent(objToken);
+            
+            if (result.getCode() != 0) {
+                log.warn("Failed to load document for node {}: {}", objToken, result.getMsg());
+                return null;
+            }
 
-        log.info("Batch loading completed: total_documents={}, failed={}", documents.size(), failedDocuments.size());
-        return documents;
+            if (result.getData() == null || StringUtils.isEmpty(result.getData().getContent())) {
+                log.debug("Node {} has no content", objToken);
+                return null;
+            }
+
+            return createDocumentFromNode(objToken, node, result.getData());
+        } catch (Exception e) {
+            log.error("Error loading document for node {}: {}", node.getNodeToken(), e.getMessage());
+            return null;
+        }
     }
 
     /**
-     * 获取文档详情
+     * 根据文档内容创建Document对象
+     *
+     * @param docToken 文档token
+     * @param content 文档内容
+     * @return Document对象
      */
-    private Document fetchDocumentDetail(String docId) {
-        FeishuResult<FeishuDocInfo> detailResult = service.getDocumentDetail(appToken, docId);
-        return detailResult.getData() != null ? createDocumentFromInfo(docId, detailResult.getData()) : null;
-    }
-
-    /**
-     * 从FeishuDocInfo创建Document对象
-     */
-    private Document createDocumentFromInfo(String docId, FeishuDocInfo docInfo) {
-        if (docInfo == null) {
-            log.warn("DocInfo is null for document: {}", docId);
-            return null;
-        }
-        
-        if (isContentEmpty(docInfo)) {
-            log.debug("Document has no content: {}", docId);
-            return null;
-        }
-
+    private Document createDocumentFromContent(String docToken, FeishuDocContent content) {
         Document document = new Document();
-        document.setUniqueId(docId);
-        
-        Map<String, Object> metadata = createMetadata(docId, docInfo);
+        document.setUniqueId(docToken);
+        document.setPageContent(content.getContent());
+
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("source", "feishu");
+        metadata.put("doc_token", docToken);
+        metadata.put("doc_type", docType);
+        metadata.put("url", domain + "/docx/" + docToken);
+
         document.setMetadata(metadata);
-        
-        String content = extractContent(docInfo);
-        document.setPageContent(content);
-        
+        return document;
+    }
+
+    /**
+     * 根据节点信息和内容创建Document对象
+     *
+     * @param objToken 对象token
+     * @param node 节点信息
+     * @param content 文档内容
+     * @return Document对象
+     */
+    private Document createDocumentFromNode(String objToken, FeishuNodeList.Node node, FeishuDocContent content) {
+        Document document = new Document();
+        document.setUniqueId(objToken);
+        document.setPageContent(content.getContent());
+
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("source", "feishu");
+        metadata.put("space_id", spaceId);
+        metadata.put("doc_token", objToken);
+        metadata.put("node_token", node.getNodeToken());
+        metadata.put("doc_type", node.getObjType());
+        metadata.put("title", node.getTitle());
+        metadata.put("url", domain + "/docx/" + objToken);
+
+        document.setMetadata(metadata);
         return document;
     }
     
-    /**
-     * 检查内容是否为空
-     */
-    private boolean isContentEmpty(FeishuDocInfo docInfo) {
-        return (docInfo.getContent() == null || docInfo.getContent().trim().isEmpty()) && 
-               (docInfo.getContentHtml() == null || docInfo.getContentHtml().trim().isEmpty());
-    }
-    
-    /**
-     * 创建元数据
-     */
-    private Map<String, Object> createMetadata(String docId, FeishuDocInfo docInfo) {
-        Map<String, Object> metadata = new HashMap<>();
-        metadata.put("url", getDomain() + "docs/" + docId);
-        metadata.put("title", Optional.ofNullable(docInfo.getTitle()).orElse("Untitled"));
-        metadata.put("ownerId", docInfo.getOwnerId());
-        metadata.put("createdAt", docInfo.getCreatedAt());
-        metadata.put("updatedAt", docInfo.getUpdatedAt());
-        metadata.put("documentType", docInfo.getDocumentType());
-        metadata.put("documentSize", docInfo.getDocumentSize());
-        return metadata;
-    }
-    
-    /**
-     * 提取文档内容
-     */
-    private String extractContent(FeishuDocInfo docInfo) {
-        if (returnHtml && docInfo.getContentHtml() != null) {
-            return docInfo.getContentHtml();
-        }
-        
-        if (docInfo.getContent() != null && !docInfo.getContent().trim().isEmpty()) {
-            return docInfo.getContent();
-        }
-        
-        if (docInfo.getContentHtml() != null && !docInfo.getContentHtml().trim().isEmpty()) {
-            return cleanContent(docInfo.getContentHtml());
-        }
-        
-        return "";
-    }
-
-    /**
-     * 清理HTML内容，提取纯文本
-     */
-    private String cleanContent(String htmlContent) {
-        if (htmlContent == null || htmlContent.isEmpty()) {
-            return "";
-        }
-        // 简单的HTML标签清理
-        return htmlContent.replaceAll("<[^>]+>", "").trim();
-    }
-
-    /**
-     * 关闭资源
-     */
-    public void close() {
-        if (ioExecutor != null && !ioExecutor.isShutdown()) {
-            ioExecutor.shutdown();
+    @Override
+    public List<Document> fetchContent(Map<String, Object> documentMeta) {
+        if (documentMeta.get("docToken") != null) {
+            String tempDocToken = (String) documentMeta.get("docToken");
+            String originalDocToken = this.docToken;
             try {
-                if (!ioExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
-                    log.warn("Executor did not terminate gracefully, forcing shutdown");
-                    ioExecutor.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                log.warn("Interrupted while waiting for executor termination");
-                ioExecutor.shutdownNow();
-                Thread.currentThread().interrupt();
+                this.docToken = tempDocToken;
+                return load();
+            } finally {
+                this.docToken = originalDocToken;
+            }
+        } else if (documentMeta.get("spaceId") != null) {
+            String tempSpaceId = (String) documentMeta.get("spaceId");
+            String originalSpaceId = this.spaceId;
+            try {
+                this.spaceId = tempSpaceId;
+                return load();
+            } finally {
+                this.spaceId = originalSpaceId;
             }
         }
-    }
-
-    /**
-     * Builder模式
-     */
-    public static class Builder {
-        private String appId;
-        private String appSecret;
-        private Long timeout = 30L;
-        private String appToken;
-        private String documentId;
-        private Integer offset = 0;
-        private Integer batchSize = FeishuConfig.DEFAULT_BATCH_SIZE;
-        private String domain = FeishuConfig.DEFAULT_DOMAIN;
-        private boolean returnHtml = false;
-
-        public Builder appId(String appId) {
-            this.appId = appId;
-            return this;
-        }
-
-        public Builder appSecret(String appSecret) {
-            this.appSecret = appSecret;
-            return this;
-        }
-
-        public Builder timeout(Long timeout) {
-            this.timeout = timeout;
-            return this;
-        }
-
-        public Builder appToken(String appToken) {
-            this.appToken = appToken;
-            return this;
-        }
-
-        public Builder documentId(String documentId) {
-            this.documentId = documentId;
-            return this;
-        }
-
-        public Builder offset(Integer offset) {
-            this.offset = offset;
-            return this;
-        }
-
-        public Builder batchSize(Integer batchSize) {
-            this.batchSize = batchSize;
-            return this;
-        }
-
-        public Builder domain(String domain) {
-            this.domain = domain;
-            return this;
-        }
-
-        public Builder returnHtml(boolean returnHtml) {
-            this.returnHtml = returnHtml;
-            return this;
-        }
-
-        public FeishuDocLoader build() {
-            if (appToken == null || appToken.isEmpty()) {
-                throw new IllegalArgumentException("appToken is required");
-            }
-
-            FeishuDocLoader loader = new FeishuDocLoader(appToken);
-            loader.setDocumentId(documentId);
-            loader.setOffset(offset);
-            loader.setBatchSize(batchSize);
-            loader.setDomain(domain);
-            loader.setReturnHtml(returnHtml);
-            
-            return loader;
-        }
+        return load();
     }
 }

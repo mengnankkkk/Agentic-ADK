@@ -9,49 +9,49 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class WeatherRequest {
 
-    /**
-     * City code (adcode)
-     */
-    @JsonProperty("city")
-    private String city;
+	/**
+	 * City code (adcode)
+	 */
+	@JsonProperty("city")
+	private String city;
 
-    /**
-     * Weather type, values: base/all
-     * base: return current weather
-     * all: return forecast weather
-     */
-    @JsonProperty("extensions")
-    private String extensions;
+	/**
+	 * Weather type, values: base/all base: return current weather all: return forecast
+	 * weather
+	 */
+	@JsonProperty("extensions")
+	private String extensions;
 
-    /**
-     * Return format, values: JSON,XML
-     */
-    @JsonProperty("output")
-    private String output;
+	/**
+	 * Return format, values: JSON,XML
+	 */
+	@JsonProperty("output")
+	private String output;
 
-    // Getters and Setters
+	// Getters and Setters
 
-    public String getCity() {
-        return city;
-    }
+	public String getCity() {
+		return city;
+	}
 
-    public void setCity(String city) {
-        this.city = city;
-    }
+	public void setCity(String city) {
+		this.city = city;
+	}
 
-    public String getExtensions() {
-        return extensions;
-    }
+	public String getExtensions() {
+		return extensions;
+	}
 
-    public void setExtensions(String extensions) {
-        this.extensions = extensions;
-    }
+	public void setExtensions(String extensions) {
+		this.extensions = extensions;
+	}
 
-    public String getOutput() {
-        return output;
-    }
+	public String getOutput() {
+		return output;
+	}
 
-    public void setOutput(String output) {
-        this.output = output;
-    }
+	public void setOutput(String output) {
+		this.output = output;
+	}
+
 }

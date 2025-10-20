@@ -1,3 +1,18 @@
+/**
+ * Copyright (C) 2024 AIDC-AI
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.alibaba.langengine.docloader.dingtalk.service;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -17,28 +32,28 @@ import retrofit2.converter.jackson.JacksonConverterFactory;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.util.List;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Supplier;
-import java.util.stream.Collectors;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 
+/**
+ * 钉钉服务
+ *
+ * @author Libres-coder
+ */
 @Slf4j
 @Data
 public class DingTalkService {
 
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(60);
-    private static final String BASE_URL = "https://oapi.dingtalk.com/";
-    private static final int MAX_CONNECTIONS = 20;
-    private static final int KEEP_ALIVE_DURATION = 5;
-    
-    private static final ObjectMapper mapper = defaultObjectMapper();
-    private static final AtomicInteger requestCounter = new AtomicInteger(0);
-    
-    // 线程安全的连接池
-    private static final ConnectionPool sharedConnectionPool = 
-        new ConnectionPool(MAX_CONNECTIONS, KEEP_ALIVE_DURATION, TimeUnit.MINUTES);
+    /**
+     * 钉钉开放平台API基础地址
+     */
+    private static final String BASE_URL = "https://oapi.dingtalk.com";
 
+    private static final ObjectMapper mapper = defaultObjectMapper();
+
+    /**
+     * api
+     */
     @JsonIgnore
     private DingTalkApi api;
 
@@ -49,95 +64,105 @@ public class DingTalkService {
     private OkHttpClient client;
 
     /**
+     * 应用Key
+     */
+    private String appKey;
+
+    /**
+     * 应用密钥
+     */
+    private String appSecret;
+
+    /**
      * 访问令牌
      */
+    @JsonIgnore
     private String accessToken;
 
-    public DingTalkService(String accessToken, Duration timeout) {
-        this.accessToken = accessToken;
-        setClient(defaultClient(timeout));
-        setExecutorService(client.dispatcher().executorService());
+    /**
+     * 令牌过期时间（毫秒）
+     */
+    @JsonIgnore
+    private long tokenExpireTime;
 
+    public DingTalkService(String appKey, String appSecret, Duration timeout) {
+        this.appKey = appKey;
+        this.appSecret = appSecret;
+
+        this.client = defaultClient(timeout);
+        this.executorService = client.dispatcher().executorService();
         Retrofit retrofit = defaultRetrofit(client, mapper);
         this.api = retrofit.create(DingTalkApi.class);
+
+        refreshAccessToken();
     }
 
     /**
-     * 获取文档列表（带重试机制）
+     * 获取访问令牌，如果令牌过期则自动刷新
+     *
+     * @return 访问令牌
      */
-    public DingTalkResult<List<DingTalkDocInfo>> getDocumentList(String namespace, Integer offset, Integer limit) {
-        return executeWithRetry(() -> getApi().getDocumentList(accessToken, namespace, offset, limit), 
-            "getDocumentList", namespace, offset, limit);
+    public synchronized String getAccessToken() {
+        if (accessToken == null || System.currentTimeMillis() >= tokenExpireTime) {
+            refreshAccessToken();
+        }
+        return accessToken;
     }
 
     /**
-     * 获取文档详情（带重试机制）
+     * 刷新访问令牌
      */
-    public DingTalkResult<DingTalkDocInfo> getDocumentDetail(String namespace, String documentId) {
-        return executeWithRetry(() -> getApi().getDocumentDetail(accessToken, namespace, documentId),
-            "getDocumentDetail", namespace, documentId);
-    }
-    
-    /**
-     * 批量获取文档详情
-     */
-    public List<DingTalkResult<DingTalkDocInfo>> batchGetDocumentDetails(String namespace, List<String> documentIds) {
-        log.info("Batch fetching {} documents", documentIds.size());
+    private void refreshAccessToken() {
+        DingTalkResult<DingTalkAccessToken> result = execute(api.getAccessToken(appKey, appSecret));
         
-        return documentIds.parallelStream()
-            .map(docId -> {
-                try {
-                    return getDocumentDetail(namespace, docId);
-                } catch (Exception e) {
-                    log.warn("Failed to fetch document {}: {}", docId, e.getMessage());
-                    return null;
-                }
-            })
-            .filter(result -> result != null && result.getData() != null)
-            .collect(Collectors.toList());
-    }
-
-    /**
-     * 执行API调用（带重试机制）
-     */
-    private <T> T executeWithRetry(Supplier<Single<T>> apiCallSupplier, String operation, Object... params) {
-        int maxRetries = 3;
-        long baseDelay = 1000; // 1秒
-        
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                int requestId = requestCounter.incrementAndGet();
-                log.debug("[{}] Executing {} (attempt {}/{}) with params: {}", 
-                    requestId, operation, attempt, maxRetries, params);
-                
-                T result = apiCallSupplier.get().blockingGet();
-                
-                log.debug("[{}] {} completed successfully", requestId, operation);
-                return result;
-                
-            } catch (Exception e) {
-                log.warn("[{}] {} failed (attempt {}/{}): {}", 
-                    requestCounter.get(), operation, attempt, maxRetries, e.getMessage());
-                
-                if (attempt == maxRetries) {
-                    throw new RuntimeException(String.format("%s failed after %d attempts", operation, maxRetries), e);
-                }
-                
-                // 指数退避
-                try {
-                    Thread.sleep(baseDelay * (1L << (attempt - 1)));
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException("Interrupted during retry", ie);
-                }
-            }
+        if (result.getErrCode() != 0) {
+            throw new RuntimeException("Failed to get access token: " + result.getErrMsg());
         }
         
-        throw new RuntimeException("Unexpected execution path");
+        this.accessToken = result.getAccessToken();
+        this.tokenExpireTime = System.currentTimeMillis() + (result.getExpiresIn() - 300) * 1000L;
+        log.info("DingTalk access token refreshed, expires in {} seconds", result.getExpiresIn());
     }
-    
+
+    /**
+     * 获取知识库列表
+     *
+     * @param userId 用户ID
+     * @return 知识库列表
+     */
+    public DingTalkResult<DingTalkWorkspaceList> getWorkspaceList(String userId) {
+        return execute(api.getWorkspaceList(getAccessToken(), new DingTalkUserRequest(userId)));
+    }
+
+    /**
+     * 获取文档列表
+     *
+     * @param workspaceId 知识库ID
+     * @param maxResults 最大结果数
+     * @param nextToken 分页标记
+     * @return 文档列表
+     */
+    public DingTalkResult<DingTalkDocList> getDocList(String workspaceId, Integer maxResults, String nextToken) {
+        return execute(api.getDocList(getAccessToken(), 
+            new DingTalkDocListRequest(workspaceId, maxResults, nextToken)));
+    }
+
+    /**
+     * 获取文档内容
+     *
+     * @param docId 文档ID
+     * @return 文档内容
+     */
+    public DingTalkResult<DingTalkDocContent> getDocContent(String docId) {
+        return execute(api.getDocContent(getAccessToken(), new DingTalkDocRequest(docId)));
+    }
+
     /**
      * 执行API调用
+     *
+     * @param apiCall API调用
+     * @param <T> 返回类型
+     * @return 结果
      */
     public static <T> T execute(Single<T> apiCall) {
         try {
@@ -148,16 +173,15 @@ public class DingTalkService {
                     throw e;
                 }
                 String errorBody = e.response().errorBody().string();
-                throw new RuntimeException("DingTalk API error: " + errorBody);
+                log.error("DingTalk API error: {}", errorBody);
+                throw new RuntimeException(errorBody);
             } catch (IOException ex) {
                 throw e;
             }
         }
     }
 
-    /**
-     * 默认ObjectMapper配置
-     */
+    @SuppressWarnings("deprecation")
     public static ObjectMapper defaultObjectMapper() {
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -166,35 +190,13 @@ public class DingTalkService {
         return mapper;
     }
 
-    /**
-     * 默认HTTP客户端配置（增强版）
-     */
     public OkHttpClient defaultClient(Duration timeout) {
         return new OkHttpClient.Builder()
-                .connectionPool(sharedConnectionPool)
+                .connectionPool(new ConnectionPool(5, 1, TimeUnit.SECONDS))
                 .readTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS)
-                .connectTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS)
-                .writeTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS)
-                .retryOnConnectionFailure(true)
-                .addInterceptor(new DingTalkAuthenticationInterceptor(accessToken))
-                .addInterceptor(new DingTalkRateLimitInterceptor())
                 .build();
     }
-    
-    /**
-     * 关闭服务，释放资源
-     */
-    public void shutdown() {
-        if (client != null) {
-            client.dispatcher().executorService().shutdown();
-            client.connectionPool().evictAll();
-        }
-        log.info("DingTalkService shutdown completed");
-    }
 
-    /**
-     * 默认Retrofit配置
-     */
     public Retrofit defaultRetrofit(OkHttpClient client, ObjectMapper mapper) {
         return new Retrofit.Builder()
                 .baseUrl(BASE_URL)

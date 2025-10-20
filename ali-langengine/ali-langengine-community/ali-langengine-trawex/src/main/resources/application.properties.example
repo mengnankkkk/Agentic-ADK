@@ -1,0 +1,32 @@
+# Trawex API Configuration Example
+# Copy this file to your application.properties and update with your credentials
+
+# Trawex API Base URL
+# Production: https://api.trawex.com/v1
+# Sandbox: https://sandbox-api.trawex.com/v1
+trawex.api.base.url=https://api.trawex.com/v1
+
+# Trawex API Credentials
+# Get these from your Trawex dashboard
+trawex.api.key=your_api_key_here
+trawex.api.secret=your_api_secret_here
+
+# Request Configuration
+trawex.request.timeout=30
+
+# Localization
+trawex.default.language=en-US
+trawex.default.currency=USD
+
+# Environment
+trawex.use.sandbox=false
+
+# Retry Configuration
+trawex.max.retries=3
+trawex.retry.interval=1000
+
+# Result Configuration
+trawex.default.result.size=10
+
+# User Agent
+trawex.user.agent=Ali-LangEngine-Trawex/1.0

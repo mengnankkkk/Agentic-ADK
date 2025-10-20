@@ -18,11 +18,12 @@ package com.alibaba.langengine.tencentmap.sdk;
 
 public class TencentMapException extends RuntimeException {
 
-    public TencentMapException(String message) {
-        super(message);
-    }
+	public TencentMapException(String message) {
+		super(message);
+	}
 
-    public TencentMapException(String message, Throwable cause) {
-        super(message, cause);
-    }
+	public TencentMapException(String message, Throwable cause) {
+		super(message, cause);
+	}
+
 }

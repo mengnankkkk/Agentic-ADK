@@ -18,11 +18,12 @@ package com.alibaba.langengine.amap.sdk;
 
 public class AMapException extends RuntimeException {
 
-    public AMapException(String message) {
-        super(message);
-    }
+	public AMapException(String message) {
+		super(message);
+	}
 
-    public AMapException(String message, Throwable cause) {
-        super(message, cause);
-    }
+	public AMapException(String message, Throwable cause) {
+		super(message, cause);
+	}
+
 }

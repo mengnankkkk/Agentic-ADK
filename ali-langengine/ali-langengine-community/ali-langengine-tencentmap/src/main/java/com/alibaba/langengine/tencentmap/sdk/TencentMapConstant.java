@@ -18,19 +18,21 @@ package com.alibaba.langengine.tencentmap.sdk;
 
 public final class TencentMapConstant {
 
-    private TencentMapConstant() {
+	private TencentMapConstant() {
 
-    }
+	}
 
-    public static final String TENCENT_MAP_BASE_URL = "https://apis.map.qq.com/ws";
+	public static final String TENCENT_MAP_BASE_URL = "https://apis.map.qq.com/ws";
 
-    public static final String PLACE_SEARCH_API_ENDPOINT = "/place/v1/search";
+	public static final String PLACE_SEARCH_API_ENDPOINT = "/place/v1/search";
 
-    public static final String WEATHER_API_ENDPOINT = "/weather/v1";
+	public static final String WEATHER_API_ENDPOINT = "/weather/v1";
 
-    /**
-     * The default timeout in seconds for API requests.
-     */
-    public static int DEFAULT_TIMEOUT = 30;
+	public static final String IP_LOCATION_API_ENDPOINT = "/location/v1/ip";
+
+	/**
+	 * The default timeout in seconds for API requests.
+	 */
+	public static int DEFAULT_TIMEOUT = 30;
 
 }

@@ -22,13 +22,14 @@ import static com.alibaba.langengine.baidumap.sdk.BaiduMapConstant.BAIDU_MAP_BAS
 
 public class BaiduMapConfiguration {
 
-    /**
-     * Baidu Map API key, retrieved from work properties
-     */
-    public static String BAIDU_MAP_API_KEY = WorkPropertiesUtils.get("baidu_map_api_key");
+	/**
+	 * Baidu Map API key, retrieved from work properties
+	 */
+	public static String BAIDU_MAP_API_KEY = WorkPropertiesUtils.get("baidu_map_api_key");
 
-    /**
-     * Baidu Map API base URL, defaults to the constant BASE_URL if not configured
-     */
-    public static String BAIDU_MAP_API_URL = WorkPropertiesUtils.get("baidu_map_api_url", BAIDU_MAP_BASE_URL);
+	/**
+	 * Baidu Map API base URL, defaults to the constant BASE_URL if not configured
+	 */
+	public static String BAIDU_MAP_API_URL = WorkPropertiesUtils.get("baidu_map_api_url", BAIDU_MAP_BASE_URL);
+
 }

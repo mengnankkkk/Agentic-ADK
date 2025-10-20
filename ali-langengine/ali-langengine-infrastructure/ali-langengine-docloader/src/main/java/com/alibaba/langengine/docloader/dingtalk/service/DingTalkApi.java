@@ -1,44 +1,43 @@
+/**
+ * Copyright (C) 2024 AIDC-AI
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.alibaba.langengine.docloader.dingtalk.service;
 
 import io.reactivex.Single;
-import retrofit2.http.GET;
-import retrofit2.http.Path;
-import retrofit2.http.Query;
+import retrofit2.http.*;
 
-import java.util.List;
-
-
+/**
+ * 钉钉API
+ *
+ * @author Libres-coder
+ */
 public interface DingTalkApi {
 
-    /**
-     * 获取文档列表
-     *
-     * @param accessToken 访问令牌
-     * @param namespace   命名空间
-     * @param offset      偏移量
-     * @param limit       限制数量
-     * @return 文档列表结果
-     */
-    @GET("v1.0/wiki/{namespace}/docs")
-    Single<DingTalkResult<List<DingTalkDocInfo>>> getDocumentList(
-            @Query("access_token") String accessToken,
-            @Path("namespace") String namespace,
-            @Query("offset") Integer offset,
-            @Query("limit") Integer limit
-    );
+    @GET("/gettoken")
+    Single<DingTalkResult<DingTalkAccessToken>> getAccessToken(@Query("appkey") String appKey,
+                                                                 @Query("appsecret") String appSecret);
 
-    /**
-     * 获取文档详情
-     *
-     * @param accessToken 访问令牌
-     * @param namespace   命名空间
-     * @param documentId  文档ID
-     * @return 文档详情结果
-     */
-    @GET("v1.0/wiki/{namespace}/docs/{documentId}")
-    Single<DingTalkResult<DingTalkDocInfo>> getDocumentDetail(
-            @Query("access_token") String accessToken,
-            @Path("namespace") String namespace,
-            @Path("documentId") String documentId
-    );
+    @POST("/topapi/wiki/workspace/listbyuser")
+    Single<DingTalkResult<DingTalkWorkspaceList>> getWorkspaceList(@Query("access_token") String accessToken,
+                                                                     @Body DingTalkUserRequest body);
+
+    @POST("/topapi/wiki/doc/list")
+    Single<DingTalkResult<DingTalkDocList>> getDocList(@Query("access_token") String accessToken,
+                                                         @Body DingTalkDocListRequest body);
+
+    @POST("/topapi/wiki/doc/get")
+    Single<DingTalkResult<DingTalkDocContent>> getDocContent(@Query("access_token") String accessToken,
+                                                               @Body DingTalkDocRequest body);
 }

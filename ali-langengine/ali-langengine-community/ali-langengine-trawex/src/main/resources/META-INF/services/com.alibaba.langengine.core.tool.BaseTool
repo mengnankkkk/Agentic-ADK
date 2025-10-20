@@ -1,0 +1,12 @@
+com.alibaba.langengine.trawex.tool.TrawexHotelSearchTool
+com.alibaba.langengine.trawex.tool.TrawexHotelDetailsTool
+com.alibaba.langengine.trawex.tool.TrawexHotelBookingTool
+com.alibaba.langengine.trawex.tool.TrawexFlightSearchTool
+com.alibaba.langengine.trawex.tool.TrawexFlightDetailsTool
+com.alibaba.langengine.trawex.tool.TrawexFlightBookingTool
+com.alibaba.langengine.trawex.tool.TrawexPackageSearchTool
+com.alibaba.langengine.trawex.tool.TrawexPackageDetailsTool
+com.alibaba.langengine.trawex.tool.TrawexActivitySearchTool
+com.alibaba.langengine.trawex.tool.TrawexActivityBookingTool
+com.alibaba.langengine.trawex.tool.TrawexCarRentalSearchTool
+com.alibaba.langengine.trawex.tool.TrawexCarRentalBookingTool

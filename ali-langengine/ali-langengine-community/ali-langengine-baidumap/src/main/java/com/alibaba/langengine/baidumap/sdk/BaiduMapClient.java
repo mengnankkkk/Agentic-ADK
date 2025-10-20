@@ -16,8 +16,10 @@
 
 package com.alibaba.langengine.baidumap.sdk;
 
+import com.alibaba.langengine.baidumap.sdk.request.IpLocationRequest;
 import com.alibaba.langengine.baidumap.sdk.request.PlaceSearchRequest;
 import com.alibaba.langengine.baidumap.sdk.request.WeatherRequest;
+import com.alibaba.langengine.baidumap.sdk.response.IpLocationResponse;
 import com.alibaba.langengine.baidumap.sdk.response.PlaceSearchResponse;
 import com.alibaba.langengine.baidumap.sdk.response.WeatherResponse;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -40,171 +42,224 @@ import java.util.stream.Collectors;
 import static com.alibaba.langengine.baidumap.BaiduMapConfiguration.BAIDU_MAP_API_KEY;
 import static com.alibaba.langengine.baidumap.BaiduMapConfiguration.BAIDU_MAP_API_URL;
 import static com.alibaba.langengine.baidumap.sdk.BaiduMapConstant.DEFAULT_TIMEOUT;
+import static com.alibaba.langengine.baidumap.sdk.BaiduMapConstant.IP_API_ENDPOINT;
 import static com.alibaba.langengine.baidumap.sdk.BaiduMapConstant.PLACE_SEARCH_API_ENDPOINT;
 import static com.alibaba.langengine.baidumap.sdk.BaiduMapConstant.WEATHER_API_ENDPOINT;
 
 public class BaiduMapClient {
 
-    private final String apiKey;
+	private final String apiKey;
 
-    private final OkHttpClient httpClient;
+	private final OkHttpClient httpClient;
 
-    private final ObjectMapper objectMapper;
+	private final ObjectMapper objectMapper;
 
-    private static final Map<String, Method> PLACE_SEARCH_REQUEST_GETTERS;
+	private static final Map<String, Method> PLACE_SEARCH_REQUEST_GETTERS;
 
-    static {
-        // Use the reflection API to map the getter methods of the Request fields to their corresponding JsonProperty names.
-        PLACE_SEARCH_REQUEST_GETTERS = Arrays.stream(PlaceSearchRequest.class.getDeclaredFields())
-                .filter(f -> !Modifier.isStatic(f.getModifiers()))
-                .collect(Collectors.toMap(f -> {
-                        if (f.getAnnotation(JsonProperty.class) == null) {
-                            return f.getName();
-                        }
-                        return f.getAnnotation(JsonProperty.class).value();
-                    }, f -> {
-                        String name = f.getName();
-                        String getterName = "get" + name.substring(0, 1).toUpperCase() + name.substring(1);
-                        try {
-                            return PlaceSearchRequest.class.getMethod(getterName);
-                        } catch (NoSuchMethodException e) {
-                            throw new RuntimeException(e);
-                        }
-                    }));
-    }
+	static {
+		// Use the reflection API to map the getter methods of the Request fields to their
+		// corresponding JsonProperty names.
+		PLACE_SEARCH_REQUEST_GETTERS = Arrays.stream(PlaceSearchRequest.class.getDeclaredFields())
+			.filter(f -> !Modifier.isStatic(f.getModifiers()))
+			.collect(Collectors.toMap(f -> {
+				if (f.getAnnotation(JsonProperty.class) == null) {
+					return f.getName();
+				}
+				return f.getAnnotation(JsonProperty.class).value();
+			}, f -> {
+				String name = f.getName();
+				String getterName = "get" + name.substring(0, 1).toUpperCase() + name.substring(1);
+				try {
+					return PlaceSearchRequest.class.getMethod(getterName);
+				}
+				catch (NoSuchMethodException e) {
+					throw new RuntimeException(e);
+				}
+			}));
+	}
 
-    public BaiduMapClient(String apiKey) {
-        this.apiKey = apiKey;
-        this.httpClient = new OkHttpClient.Builder()
-                .connectTimeout(DEFAULT_TIMEOUT, TimeUnit.SECONDS)
-                .readTimeout(DEFAULT_TIMEOUT, TimeUnit.SECONDS)
-                .writeTimeout(DEFAULT_TIMEOUT, TimeUnit.SECONDS)
-                .build();
-        this.objectMapper = new ObjectMapper();
-    }
+	public BaiduMapClient(String apiKey) {
+		this.apiKey = apiKey;
+		this.httpClient = new OkHttpClient.Builder().connectTimeout(DEFAULT_TIMEOUT, TimeUnit.SECONDS)
+			.readTimeout(DEFAULT_TIMEOUT, TimeUnit.SECONDS)
+			.writeTimeout(DEFAULT_TIMEOUT, TimeUnit.SECONDS)
+			.build();
+		this.objectMapper = new ObjectMapper();
+	}
 
-    public BaiduMapClient() {
-        this(BAIDU_MAP_API_KEY);
-    }
+	public BaiduMapClient() {
+		this(BAIDU_MAP_API_KEY);
+	}
 
-    /**
-     * Use Baidu Map API to Location Search. (Full Request)
-     * Doc: <a href="https://lbs.baidu.com/faq/api?title=webapi/guide/webservice-placeapiV3/interfaceDocumentV3">...</a>
-     * @param placeSearchRequest request
-     * @return response
-     * @throws BaiduMapException exception
-     */
-    public PlaceSearchResponse placeSearch(PlaceSearchRequest placeSearchRequest) throws BaiduMapException {
-        try {
-            // Build the HTTP URL with query parameters
-            HttpUrl.Builder urlBuilder = HttpUrl.parse(BAIDU_MAP_API_URL + PLACE_SEARCH_API_ENDPOINT).newBuilder();
+	/**
+	 * Use Baidu Map API to Location Search. (Full Request) Doc: <a href=
+	 * "https://lbs.baidu.com/faq/api?title=webapi/guide/webservice-placeapiV3/interfaceDocumentV3">...</a>
+	 * @param placeSearchRequest request
+	 * @return response
+	 * @throws BaiduMapException exception
+	 */
+	public PlaceSearchResponse placeSearch(PlaceSearchRequest placeSearchRequest) throws BaiduMapException {
+		try {
+			// Build the HTTP URL with query parameters
+			HttpUrl.Builder urlBuilder = HttpUrl.parse(BAIDU_MAP_API_URL + PLACE_SEARCH_API_ENDPOINT).newBuilder();
 
-            // obtain field properties and apply them to set request headers.
-            PLACE_SEARCH_REQUEST_GETTERS.forEach((key, value) -> {
-                try {
-                    Object obj = value.invoke(placeSearchRequest);
-                    if (obj != null) {
-                        urlBuilder.addQueryParameter(key, obj.toString());
-                    }
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            });
-            urlBuilder.addQueryParameter("ak", apiKey);
+			// obtain field properties and apply them to set request headers.
+			PLACE_SEARCH_REQUEST_GETTERS.forEach((key, value) -> {
+				try {
+					Object obj = value.invoke(placeSearchRequest);
+					if (obj != null) {
+						urlBuilder.addQueryParameter(key, obj.toString());
+					}
+				}
+				catch (Exception e) {
+					throw new RuntimeException(e);
+				}
+			});
+			urlBuilder.addQueryParameter("ak", apiKey);
 
-            // Create the HTTP request
-            Request httpRequest = new Request.Builder()
-                    .url(urlBuilder.build())
-                    .addHeader("Accept", "application/json")
-                    .get()
-                    .build();
+			// Create the HTTP request
+			Request httpRequest = new Request.Builder().url(urlBuilder.build())
+				.addHeader("Accept", "application/json")
+				.get()
+				.build();
 
-            // Execute the request
-            try (Response response = httpClient.newCall(httpRequest).execute()) {
-                if (!response.isSuccessful()) {
-                    throw new BaiduMapException("API request failed: " + response.code() + " " + response.message());
-                }
-                ResponseBody body = response.body();
-                if (body == null) {
-                    throw new BaiduMapException("API Returns Empty Body");
-                }
-                return objectMapper.readValue(body.string(), new TypeReference<PlaceSearchResponse>() {});
-            }
-        } catch (BaiduMapException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new BaiduMapException(e.getMessage(), e);
-        }
-    }
+			// Execute the request
+			try (Response response = httpClient.newCall(httpRequest).execute()) {
+				if (!response.isSuccessful()) {
+					throw new BaiduMapException("API request failed: " + response.code() + " " + response.message());
+				}
+				ResponseBody body = response.body();
+				if (body == null) {
+					throw new BaiduMapException("API Returns Empty Body");
+				}
+				return objectMapper.readValue(body.string(), new TypeReference<PlaceSearchResponse>() {
+				});
+			}
+		}
+		catch (BaiduMapException e) {
+			throw e;
+		}
+		catch (Exception e) {
+			throw new BaiduMapException(e.getMessage(), e);
+		}
+	}
 
-    /**
-     * Use Baidu Map API to Location Search. (Simple Request)
-     * Doc: <a href="https://lbs.baidu.com/faq/api?title=webapi/guide/webservice-placeapiV3/interfaceDocumentV3">...</a>
-     * @param query keywords
-     * @param region Retrieve administrative divisions and regions
-     * @return response
-     * @throws BaiduMapException exception
-     */
-    public PlaceSearchResponse placeSearch(String query, String region) throws BaiduMapException {
-        PlaceSearchRequest placeSearchRequest = new PlaceSearchRequest();
-        placeSearchRequest.setQuery(query);
-        placeSearchRequest.setRegion(region);
-        return this.placeSearch(placeSearchRequest);
-    }
+	/**
+	 * Use Baidu Map API to Location Search. (Simple Request) Doc: <a href=
+	 * "https://lbs.baidu.com/faq/api?title=webapi/guide/webservice-placeapiV3/interfaceDocumentV3">...</a>
+	 * @param query keywords
+	 * @param region Retrieve administrative divisions and regions
+	 * @return response
+	 * @throws BaiduMapException exception
+	 */
+	public PlaceSearchResponse placeSearch(String query, String region) throws BaiduMapException {
+		PlaceSearchRequest placeSearchRequest = new PlaceSearchRequest();
+		placeSearchRequest.setQuery(query);
+		placeSearchRequest.setRegion(region);
+		return this.placeSearch(placeSearchRequest);
+	}
 
-    /**
-     * Get weather information based on request parameters
-     * Doc: <a href="https://lbs.baidu.com/faq/api?title=webapi/weather/base">...</a>
-     *
-     * @param request Weather request parameters
-     * @return Weather response
-     * @throws BaiduMapException when API call fails
-     */
-    public WeatherResponse getWeather(WeatherRequest request) throws BaiduMapException {
-        try {
-            HttpUrl.Builder urlBuilder = HttpUrl.parse(BAIDU_MAP_API_URL + WEATHER_API_ENDPOINT).newBuilder();
-            urlBuilder.addPathSegment("");
+	/**
+	 * Get weather information based on request parameters Doc:
+	 * <a href="https://lbs.baidu.com/faq/api?title=webapi/weather/base">...</a>
+	 * @param request Weather request parameters
+	 * @return Weather response
+	 * @throws BaiduMapException when API call fails
+	 */
+	public WeatherResponse getWeather(WeatherRequest request) throws BaiduMapException {
+		try {
+			HttpUrl.Builder urlBuilder = HttpUrl.parse(BAIDU_MAP_API_URL + WEATHER_API_ENDPOINT).newBuilder();
+			urlBuilder.addPathSegment("");
 
-            // Add non-null parameters to query
-            if (request.getDistrictId() != null) {
-                urlBuilder.addQueryParameter("district_id", request.getDistrictId());
-            }
-            if (request.getLocation() != null) {
-                urlBuilder.addQueryParameter("location", request.getLocation());
-            }
-            urlBuilder.addQueryParameter("ak", apiKey);
-            if (request.getDataType() != null) {
-                urlBuilder.addQueryParameter("data_type", request.getDataType());
-            }
-            if (request.getOutput() != null) {
-                urlBuilder.addQueryParameter("output", request.getOutput());
-            }
-            if (request.getCoordtype() != null) {
-                urlBuilder.addQueryParameter("coordtype", request.getCoordtype());
-            }
+			// Add non-null parameters to query
+			if (request.getDistrictId() != null) {
+				urlBuilder.addQueryParameter("district_id", request.getDistrictId());
+			}
+			if (request.getLocation() != null) {
+				urlBuilder.addQueryParameter("location", request.getLocation());
+			}
+			urlBuilder.addQueryParameter("ak", apiKey);
+			if (request.getDataType() != null) {
+				urlBuilder.addQueryParameter("data_type", request.getDataType());
+			}
+			if (request.getOutput() != null) {
+				urlBuilder.addQueryParameter("output", request.getOutput());
+			}
+			if (request.getCoordtype() != null) {
+				urlBuilder.addQueryParameter("coordtype", request.getCoordtype());
+			}
 
-            Request httpRequest = new Request.Builder()
-                    .url(urlBuilder.build())
-                    .get()
-                    .build();
+			Request httpRequest = new Request.Builder().url(urlBuilder.build()).get().build();
 
-            try (Response response = httpClient.newCall(httpRequest).execute()) {
-                if (!response.isSuccessful()) {
-                    throw new BaiduMapException("Baidu map API request failed with code: " + response.code());
-                }
+			try (Response response = httpClient.newCall(httpRequest).execute()) {
+				if (!response.isSuccessful()) {
+					throw new BaiduMapException("Baidu map API request failed with code: " + response.code());
+				}
 
-                if (response.body() == null) {
-                    throw new BaiduMapException("Baidu map API response body is null");
-                }
+				if (response.body() == null) {
+					throw new BaiduMapException("Baidu map API response body is null");
+				}
 
-                String responseBody = response.body().string();
-                return objectMapper.readValue(responseBody, WeatherResponse.class);
-            }
-        } catch (IOException e) {
-            throw new BaiduMapException("Error occurred while calling Baidu map weather API", e);
-        } catch (Exception e) {
-            throw new BaiduMapException("Unexpected error occurred while calling Baidu map weather API", e);
-        }
-    }
+				String responseBody = response.body().string();
+				return objectMapper.readValue(responseBody, WeatherResponse.class);
+			}
+		}
+		catch (IOException e) {
+			throw new BaiduMapException("Error occurred while calling Baidu map weather API", e);
+		}
+		catch (Exception e) {
+			throw new BaiduMapException("Unexpected error occurred while calling Baidu map weather API", e);
+		}
+	}
+
+	/**
+	 * Get location information based on IP address Doc:
+	 * <a href="https://lbs.baidu.com/faq/api?title=webapi/ip-api-base">...</a>
+	 * @param request IP location request parameters
+	 * @return IP location response
+	 * @throws BaiduMapException when API call fails
+	 */
+	public IpLocationResponse getIpLocation(IpLocationRequest request) throws BaiduMapException {
+		try {
+			HttpUrl.Builder urlBuilder = HttpUrl.parse(BAIDU_MAP_API_URL + IP_API_ENDPOINT).newBuilder();
+
+			// Add non-null parameters to query
+			if (request.getIp() != null) {
+				urlBuilder.addQueryParameter("ip", request.getIp());
+			}
+			urlBuilder.addQueryParameter("ak", apiKey);
+			if (request.getSn() != null) {
+				urlBuilder.addQueryParameter("sn", request.getSn());
+			}
+			if (request.getCoor() != null) {
+				urlBuilder.addQueryParameter("coor", request.getCoor());
+			}
+
+			Request httpRequest = new Request.Builder().url(urlBuilder.build()).get().build();
+
+			try (Response response = httpClient.newCall(httpRequest).execute()) {
+				if (!response.isSuccessful()) {
+					throw new BaiduMapException("Baidu map API request failed with code: " + response.code());
+				}
+
+				if (response.body() == null) {
+					throw new BaiduMapException("Baidu map API response body is null");
+				}
+
+				String responseBody = response.body().string();
+				if (responseBody.startsWith("<")) {
+					throw new BaiduMapException("Received HTML response instead of JSON: " + response);
+				}
+
+				return objectMapper.readValue(responseBody, IpLocationResponse.class);
+			}
+		}
+		catch (IOException e) {
+			throw new BaiduMapException("Error occurred while calling Baidu map IP location API", e);
+		}
+		catch (Exception e) {
+			throw new BaiduMapException("Unexpected error occurred while calling Baidu map IP location API", e);
+		}
+	}
 
 }

@@ -1,71 +1,57 @@
+/**
+ * Copyright (C) 2024 AIDC-AI
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.alibaba.langengine.docloader.dingtalk.service;
 
-import lombok.AllArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
-import lombok.NoArgsConstructor;
 
-
+/**
+ * 钉钉响应结果
+ *
+ * @author Libres-coder
+ */
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 public class DingTalkResult<T> {
 
     /**
-     * 响应数据
+     * 返回码，0表示成功
      */
-    private T data;
-
-    /**
-     * 响应元数据
-     */
-    private DingTalkMeta meta;
-
-    /**
-     * 错误码
-     */
-    private String errcode;
+    @JsonProperty("errcode")
+    private Integer errCode;
 
     /**
      * 错误信息
      */
-    private String errmsg;
+    @JsonProperty("errmsg")
+    private String errMsg;
 
     /**
-     * 是否成功
+     * 响应数据
      */
-    private Boolean success;
+    private T result;
 
     /**
-     * 响应元数据
+     * access_token（仅获取token接口返回）
      */
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class DingTalkMeta {
+    @JsonProperty("access_token")
+    private String accessToken;
 
-        /**
-         * 总记录数
-         */
-        private Integer total;
-
-        /**
-         * 当前页码
-         */
-        private Integer page;
-
-        /**
-         * 每页大小
-         */
-        private Integer size;
-
-        /**
-         * 是否有下一页
-         */
-        private Boolean hasMore;
-
-        /**
-         * 下一页游标
-         */
-        private String nextCursor;
-    }
+    /**
+     * 过期时间（仅获取token接口返回）
+     */
+    @JsonProperty("expires_in")
+    private Integer expiresIn;
 }

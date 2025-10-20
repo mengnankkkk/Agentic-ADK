@@ -22,157 +22,158 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class PlaceSearchRequest {
 
-    /**
-     * Service permission key
-     */
-    @JsonProperty("key")
-    private String key;
+	/**
+	 * Service permission key
+	 */
+	@JsonProperty("key")
+	private String key;
 
-    /**
-     * Query keywords
-     */
-    @JsonProperty("keywords")
-    private String keywords;
+	/**
+	 * Query keywords
+	 */
+	@JsonProperty("keywords")
+	private String keywords;
 
-    /**
-     * POI types to search
-     */
-    @JsonProperty("types")
-    private String types;
+	/**
+	 * POI types to search
+	 */
+	@JsonProperty("types")
+	private String types;
 
-    /**
-     * City for search
-     */
-    @JsonProperty("city")
-    private String city;
+	/**
+	 * City for search
+	 */
+	@JsonProperty("city")
+	private String city;
 
-    /**
-     * Whether to limit results to specified city only
-     */
-    @JsonProperty("citylimit")
-    private Boolean cityLimit;
+	/**
+	 * Whether to limit results to specified city only
+	 */
+	@JsonProperty("citylimit")
+	private Boolean cityLimit;
 
-    /**
-     * Whether to group child POIs under parent POIs
-     */
-    @JsonProperty("children")
-    private Integer children;
+	/**
+	 * Whether to group child POIs under parent POIs
+	 */
+	@JsonProperty("children")
+	private Integer children;
 
-    /**
-     * Number of records per page
-     */
-    @JsonProperty("offset")
-    private Integer offset;
+	/**
+	 * Number of records per page
+	 */
+	@JsonProperty("offset")
+	private Integer offset;
 
-    /**
-     * Current page number
-     */
-    @JsonProperty("page")
-    private Integer page;
+	/**
+	 * Current page number
+	 */
+	@JsonProperty("page")
+	private Integer page;
 
-    /**
-     * Result control extension
-     */
-    @JsonProperty("extensions")
-    private String extensions;
+	/**
+	 * Result control extension
+	 */
+	@JsonProperty("extensions")
+	private String extensions;
 
-    /**
-     * Digital signature
-     */
-    @JsonProperty("sig")
-    private String sig;
+	/**
+	 * Digital signature
+	 */
+	@JsonProperty("sig")
+	private String sig;
 
-    /**
-     * Callback function name
-     */
-    @JsonProperty("callback")
-    private String callback;
+	/**
+	 * Callback function name
+	 */
+	@JsonProperty("callback")
+	private String callback;
 
-    public String getKey() {
-        return key;
-    }
+	public String getKey() {
+		return key;
+	}
 
-    public void setKey(String key) {
-        this.key = key;
-    }
+	public void setKey(String key) {
+		this.key = key;
+	}
 
-    public String getKeywords() {
-        return keywords;
-    }
+	public String getKeywords() {
+		return keywords;
+	}
 
-    public void setKeywords(String keywords) {
-        this.keywords = keywords;
-    }
+	public void setKeywords(String keywords) {
+		this.keywords = keywords;
+	}
 
-    public String getTypes() {
-        return types;
-    }
+	public String getTypes() {
+		return types;
+	}
 
-    public void setTypes(String types) {
-        this.types = types;
-    }
+	public void setTypes(String types) {
+		this.types = types;
+	}
 
-    public String getCity() {
-        return city;
-    }
+	public String getCity() {
+		return city;
+	}
 
-    public void setCity(String city) {
-        this.city = city;
-    }
+	public void setCity(String city) {
+		this.city = city;
+	}
 
-    public Boolean getCityLimit() {
-        return cityLimit;
-    }
+	public Boolean getCityLimit() {
+		return cityLimit;
+	}
 
-    public void setCityLimit(Boolean cityLimit) {
-        this.cityLimit = cityLimit;
-    }
+	public void setCityLimit(Boolean cityLimit) {
+		this.cityLimit = cityLimit;
+	}
 
-    public Integer getChildren() {
-        return children;
-    }
+	public Integer getChildren() {
+		return children;
+	}
 
-    public void setChildren(Integer children) {
-        this.children = children;
-    }
+	public void setChildren(Integer children) {
+		this.children = children;
+	}
 
-    public Integer getOffset() {
-        return offset;
-    }
+	public Integer getOffset() {
+		return offset;
+	}
 
-    public void setOffset(Integer offset) {
-        this.offset = offset;
-    }
+	public void setOffset(Integer offset) {
+		this.offset = offset;
+	}
 
-    public Integer getPage() {
-        return page;
-    }
+	public Integer getPage() {
+		return page;
+	}
 
-    public void setPage(Integer page) {
-        this.page = page;
-    }
+	public void setPage(Integer page) {
+		this.page = page;
+	}
 
-    public String getExtensions() {
-        return extensions;
-    }
+	public String getExtensions() {
+		return extensions;
+	}
 
-    public void setExtensions(String extensions) {
-        this.extensions = extensions;
-    }
+	public void setExtensions(String extensions) {
+		this.extensions = extensions;
+	}
 
-    public String getSig() {
-        return sig;
-    }
+	public String getSig() {
+		return sig;
+	}
 
-    public void setSig(String sig) {
-        this.sig = sig;
-    }
+	public void setSig(String sig) {
+		this.sig = sig;
+	}
 
-    public String getCallback() {
-        return callback;
-    }
+	public String getCallback() {
+		return callback;
+	}
 
-    public void setCallback(String callback) {
-        this.callback = callback;
-    }
+	public void setCallback(String callback) {
+		this.callback = callback;
+	}
+
 }

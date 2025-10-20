@@ -18,19 +18,21 @@ package com.alibaba.langengine.amap.sdk;
 
 public final class AMapConstant {
 
-    private AMapConstant() {
+	private AMapConstant() {
 
-    }
+	}
 
-    public static final String AMAP_BASE_URL = "https://restapi.amap.com/v3";
+	public static final String AMAP_BASE_URL = "https://restapi.amap.com/v3";
 
-    /**
-     * The default timeout in seconds for API requests.
-     */
-    public static int DEFAULT_TIMEOUT = 30;
+	/**
+	 * The default timeout in seconds for API requests.
+	 */
+	public static int DEFAULT_TIMEOUT = 30;
 
-    public static final String PLACE_SEARCH_API_ENDPOINT = "/place/text";
+	public static final String PLACE_SEARCH_API_ENDPOINT = "/place/text";
 
-    public static final String WEATHER_API_ENDPOINT = "/weather/weatherInfo";
+	public static final String WEATHER_API_ENDPOINT = "/weather/weatherInfo";
+
+	public static final String IP_LOCATION_API_ENDPOINT = "/ip";
 
 }

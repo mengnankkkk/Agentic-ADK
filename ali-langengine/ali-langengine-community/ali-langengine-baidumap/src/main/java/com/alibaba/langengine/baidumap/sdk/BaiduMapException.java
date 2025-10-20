@@ -17,11 +17,13 @@
 package com.alibaba.langengine.baidumap.sdk;
 
 public class BaiduMapException extends RuntimeException {
-    public BaiduMapException(String message) {
-        super(message);
-    }
 
-    public BaiduMapException(String message, Throwable cause) {
-        super(message, cause);
-    }
+	public BaiduMapException(String message) {
+		super(message);
+	}
+
+	public BaiduMapException(String message, Throwable cause) {
+		super(message, cause);
+	}
+
 }

@@ -26,6 +26,9 @@ dependencies = [
     "pydantic-settings>=2.6,<3.0",
     "boto3",
     "cohere",
+    "mcp>=1.15.0",
+    "requests",
+    "tencentcloud-sdk-python",
 
     # Alibaba Cloud SDKs
     "alibabacloud_ecd20200930",
@@ -48,4 +51,3 @@ include = [
     "LICENSE",
     "NOTICE",
 ]
-

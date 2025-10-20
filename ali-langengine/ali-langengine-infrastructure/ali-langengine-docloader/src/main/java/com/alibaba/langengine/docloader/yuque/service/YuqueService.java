@@ -1,3 +1,18 @@
+/**
+ * Copyright (C) 2024 AIDC-AI
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.alibaba.langengine.docloader.yuque.service;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -28,12 +43,11 @@ import java.util.concurrent.TimeUnit;
 @Data
 public class YuqueService {
 
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(100);
-
     /**
      * 基础地址
+     * 语雀开放API地址
      */
-    private static String baseUrl;
+    private static final String BASE_URL = "https://www.yuque.com";
 
     private static final ObjectMapper mapper = defaultObjectMapper();
 
@@ -105,7 +119,7 @@ public class YuqueService {
 
     public Retrofit defaultRetrofit(OkHttpClient client, ObjectMapper mapper) {
         return new Retrofit.Builder()
-                .baseUrl(baseUrl)
+                .baseUrl(BASE_URL)
                 .client(client)
                 .addConverterFactory(JacksonConverterFactory.create(mapper))
                 .addCallAdapterFactory(RxJava2CallAdapterFactory.create())

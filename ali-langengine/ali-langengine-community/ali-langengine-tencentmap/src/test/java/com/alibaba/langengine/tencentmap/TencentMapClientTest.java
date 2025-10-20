@@ -16,9 +16,11 @@
 
 package com.alibaba.langengine.tencentmap;
 
-import com.alibaba.langengine.tencentmap.sdk.request.WeatherRequest;
-import com.alibaba.langengine.tencentmap.sdk.response.PlaceSearchResponse;
 import com.alibaba.langengine.tencentmap.sdk.TencentMapClient;
+import com.alibaba.langengine.tencentmap.sdk.request.IpLocationRequest;
+import com.alibaba.langengine.tencentmap.sdk.request.WeatherRequest;
+import com.alibaba.langengine.tencentmap.sdk.response.IpLocationResponse;
+import com.alibaba.langengine.tencentmap.sdk.response.PlaceSearchResponse;
 import com.alibaba.langengine.tencentmap.sdk.response.WeatherResponse;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -26,33 +28,55 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 @EnabledIfEnvironmentVariable(named = "TENCENT_MAP_API_KEY", matches = ".*")
 public class TencentMapClientTest {
 
-    private static final String API_KEY = System.getenv("TENCENT_MAP_API_KEY");
+	private static final String API_KEY = System.getenv("TENCENT_MAP_API_KEY");
 
-    @Test
-    public void testPlaceSearch() {
-        TencentMapClient tencentMapClient = new TencentMapClient(API_KEY);
-        PlaceSearchResponse response = tencentMapClient.placeSearch("中街", "沈阳");
-        assert response != null;
-    }
+	@Test
+	public void testPlaceSearch() {
+		TencentMapClient tencentMapClient = new TencentMapClient(API_KEY);
+		PlaceSearchResponse response = tencentMapClient.placeSearch("中街", "沈阳");
+		assert response != null;
+	}
 
-    @Test
-    public void testWeatherNow() {
-        TencentMapClient tencentMapClient = new TencentMapClient(API_KEY);
-        WeatherRequest request = new WeatherRequest();
-        request.setAdcode("130681");
-        request.setType("now");
-        WeatherResponse response = tencentMapClient.getWeather(request);
-        assert response != null && response.getStatus() == 0;
-    }
+	@Test
+	public void testWeatherNow() {
+		TencentMapClient tencentMapClient = new TencentMapClient(API_KEY);
+		WeatherRequest request = new WeatherRequest();
+		request.setAdcode("130681");
+		request.setType("now");
+		WeatherResponse response = tencentMapClient.getWeather(request);
+		assert response != null && response.getStatus() == 0;
+	}
 
-    @Test
-    public void testWeatherFuture() {
-        TencentMapClient tencentMapClient = new TencentMapClient(API_KEY);
-        WeatherRequest request = new WeatherRequest();
-        request.setAdcode("130681");
-        request.setType("future");
-        WeatherResponse response = tencentMapClient.getWeather(request);
-        assert response != null && response.getStatus() == 0;
-    }
+	@Test
+	public void testWeatherFuture() {
+		TencentMapClient tencentMapClient = new TencentMapClient(API_KEY);
+		WeatherRequest request = new WeatherRequest();
+		request.setAdcode("130681");
+		request.setType("future");
+		WeatherResponse response = tencentMapClient.getWeather(request);
+		assert response != null && response.getStatus() == 0;
+	}
+
+	@Test
+	public void testIpLocation() {
+		TencentMapClient tencentMapClient = new TencentMapClient(API_KEY);
+		IpLocationResponse response2 = tencentMapClient.getIpLocation("111.206.145.41");
+		assert response2 != null && response2.getStatus() == 0;
+	}
+
+	@Test
+	public void testIpLocationWithRequestObject() {
+		TencentMapClient tencentMapClient = new TencentMapClient(API_KEY);
+		IpLocationRequest request = new IpLocationRequest();
+		request.setIp("111.206.145.41");
+		request.setOutput("json");
+
+		IpLocationResponse response = tencentMapClient.getIpLocation(request);
+		assert response != null && response.getStatus() == 0;
+		assert response.getResult() != null;
+		assert response.getResult().getIp() != null;
+		assert response.getResult().getLocation() != null;
+		assert response.getResult().getAdInfo() != null;
+	}
 
 }

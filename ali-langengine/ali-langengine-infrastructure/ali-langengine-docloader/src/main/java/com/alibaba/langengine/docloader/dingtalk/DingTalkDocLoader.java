@@ -1,333 +1,250 @@
+/**
+ * Copyright (C) 2024 AIDC-AI
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.alibaba.langengine.docloader.dingtalk;
 
 import com.alibaba.langengine.core.docloader.BaseLoader;
 import com.alibaba.langengine.core.indexes.Document;
-import com.alibaba.langengine.docloader.dingtalk.service.DingTalkDocInfo;
-import com.alibaba.langengine.docloader.dingtalk.service.DingTalkResult;
-import com.alibaba.langengine.docloader.dingtalk.service.DingTalkService;
+import com.alibaba.langengine.docloader.dingtalk.service.*;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.jsoup.Jsoup;
 
 import java.time.Duration;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
-
+/**
+ * 钉钉文档加载器
+ *
+ * @author Libres-coder
+ */
 @Slf4j
 @Data
+@lombok.EqualsAndHashCode(callSuper=false)
 public class DingTalkDocLoader extends BaseLoader {
 
     private DingTalkService service;
-    
-    /**
-     * API访问令牌
-     */
-    private String apiToken;
-    
-    /**
-     * 命名空间（团队/知识库标识）
-     */
-    private String namespace;
-    
-    /**
-     * 文档ID（可选，用于加载单个文档）
-     */
-    private String documentId;
-    
-    /**
-     * 钉钉文档域名
-     */
-    private String domain = "https://docs.dingtalk.com/";
-    
-    /**
-     * 批量加载时的批次大小
-     */
-    private int batchSize = 50;
-    
-    /**
-     * 是否返回HTML内容
-     */
-    private boolean returnHtml = false;
-    
-    /**
-     * 专用于I/O任务的线程池
-     */
-    private ExecutorService ioExecutor;
-    
-    /**
-     * 记录获取失败的文档ID
-     */
-    private final Set<String> failedDocuments = ConcurrentHashMap.newKeySet();
 
-    public DingTalkDocLoader(String apiToken, Long timeout) {
-        this.apiToken = apiToken;
-        this.service = new DingTalkService(apiToken, Duration.ofSeconds(timeout));
-        // Use fixed thread pool instead of Virtual Threads (Java 8 compatible)
-        this.ioExecutor = Executors.newFixedThreadPool(10);
+    /**
+     * 文档ID，用于加载单个文档
+     */
+    private String docId;
+
+    /**
+     * 知识库ID，用于批量加载知识库中的文档
+     */
+    private String workspaceId;
+
+    /**
+     * 用户ID，用于获取知识库列表
+     */
+    private String userId;
+
+    /**
+     * 每次请求的最大文档数，默认20
+     */
+    private Integer maxResults = 20;
+
+    /**
+     * 钉钉开放平台域名
+     */
+    private String domain = "https://www.dingtalk.com";
+
+    public DingTalkDocLoader(String appKey, String appSecret, Long timeout) {
+        service = new DingTalkService(appKey, appSecret, Duration.ofSeconds(timeout));
     }
 
     /**
-     * 加载文档
+     * 加载文档。
+     * 根据配置加载单个文档或批量加载知识库文档。
+     *
+     * @return 文档列表
      */
     @Override
     public List<Document> load() {
-        validateConfiguration();
-        
-        try {
-            return StringUtils.isEmpty(documentId) ? loadBatchDocuments() : loadSingleDocument();
-        } finally {
-            shutdown();
-        }
-    }
-    
-    /**
-     * 关闭资源
-     */
-    public void shutdown() {
-        if (ioExecutor != null && !ioExecutor.isShutdown()) {
-            ioExecutor.shutdown();
-            try {
-                if (!ioExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
-                    ioExecutor.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                ioExecutor.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-        }
-        if (service != null) {
-            service.shutdown();
-        }
-    }
-
-    /**
-     * 加载单个文档
-     */
-    private List<Document> loadSingleDocument() {
-        log.info("Loading single document: {}", documentId);
-        
-        DingTalkResult<DingTalkDocInfo> result = service.getDocumentDetail(namespace, documentId);
-        if (result.getData() == null) {
-            log.warn("Document not found: {}", documentId);
+        if (StringUtils.isNotEmpty(docId)) {
+            return loadSingleDocument();
+        } else if (StringUtils.isNotEmpty(workspaceId)) {
+            return loadWorkspaceDocuments();
+        } else {
+            log.warn("Neither docId nor workspaceId is provided, returning empty list");
             return new ArrayList<>();
         }
-        
-        Document document = createDocumentFromInfo(result.getData());
-        return document != null ? Collections.singletonList(document) : new ArrayList<>();
     }
 
     /**
-     * 批量加载文档（增强版）
+     * 加载单个文档。
+     *
+     * @return 单个文档的列表
      */
-    private List<Document> loadBatchDocuments() {
-        log.info("Starting batch document loading for namespace: {}", namespace);
-        
-        List<Document> allDocuments = Collections.synchronizedList(new ArrayList<>());
-        int offset = 0;
-        int totalProcessed = 0;
-        
-        do {
-            DingTalkResult<List<DingTalkDocInfo>> batchResult = 
-                service.getDocumentList(namespace, offset, batchSize);
-            
-            List<DingTalkDocInfo> docInfos = batchResult.getData();
-            if (docInfos == null || docInfos.isEmpty()) {
-                log.info("No more documents found, stopping batch loading");
-                break;
-            }
-            
-            log.info("Processing batch: offset={}, size={}", offset, docInfos.size());
-            
-            // 分批处理，避免过多并发
-            List<List<DingTalkDocInfo>> chunks = partitionList(docInfos, 10);
-            
-            for (List<DingTalkDocInfo> chunk : chunks) {
-                List<CompletableFuture<Document>> futures = chunk.stream()
-                    .map(docInfo -> CompletableFuture.supplyAsync(() -> 
-                        fetchDocumentDetailSafely(docInfo.getId()), ioExecutor)
-                        .orTimeout(30, TimeUnit.SECONDS))
-                    .collect(Collectors.toList());
-                
-                // 等待当前批次完成
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                    .join();
-                
-                List<Document> chunkDocuments = futures.stream()
-                    .map(future -> {
-                        try {
-                            return future.get();
-                        } catch (Exception e) {
-                            log.warn("Future execution failed: {}", e.getMessage());
-                            return null;
-                        }
-                    })
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
-                
-                allDocuments.addAll(chunkDocuments);
-            }
-            
-            totalProcessed += docInfos.size();
-            
-            log.info("Batch completed: processed={}, valid_documents={}, total_processed={}", 
-                docInfos.size(), allDocuments.size() - (totalProcessed - docInfos.size()), totalProcessed);
-            
-            offset += batchSize;
-            
-        } while (true);
-        
-        // 报告失败的文档
-        if (!failedDocuments.isEmpty()) {
-            log.warn("Failed to load {} documents: {}", failedDocuments.size(), failedDocuments);
-        }
-        
-        log.info("Batch loading completed: total_documents={}, failed={}", 
-            allDocuments.size(), failedDocuments.size());
-        
-        return allDocuments;
-    }
-    
-    /**
-     * 将列表分割成指定大小的块
-     */
-    private <T> List<List<T>> partitionList(List<T> list, int chunkSize) {
-        List<List<T>> partitions = new ArrayList<>();
-        for (int i = 0; i < list.size(); i += chunkSize) {
-            partitions.add(list.subList(i, Math.min(i + chunkSize, list.size())));
-        }
-        return partitions;
-    }
-
-    /**
-     * 安全地获取文档详情
-     */
-    private Document fetchDocumentDetailSafely(String docId) {
+    private List<Document> loadSingleDocument() {
         try {
-            DingTalkResult<DingTalkDocInfo> result = service.getDocumentDetail(namespace, docId);
-            return result.getData() != null ? createDocumentFromInfo(result.getData()) : null;
+            DingTalkResult<DingTalkDocContent> result = service.getDocContent(docId);
+            
+            if (result.getErrCode() != 0) {
+                log.error("Failed to load DingTalk document {}: {}", docId, result.getErrMsg());
+                return new ArrayList<>();
+            }
+
+            DingTalkDocContent content = result.getResult();
+            if (content == null || StringUtils.isEmpty(content.getDocContent())) {
+                log.warn("DingTalk document {} has no content", docId);
+                return new ArrayList<>();
+            }
+
+            Document document = new Document();
+            document.setUniqueId(docId);
+            document.setPageContent(content.getDocContent());
+
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("source", "dingtalk");
+            metadata.put("doc_id", docId);
+            metadata.put("title", content.getDocTitle());
+            metadata.put("doc_type", content.getDocType());
+            metadata.put("create_time", content.getCreateTime());
+            metadata.put("modified_time", content.getModifiedTime());
+            metadata.put("creator_id", content.getCreatorId());
+            metadata.put("modifier_id", content.getModifierId());
+            metadata.put("url", domain + "/doc/" + docId);
+
+            document.setMetadata(metadata);
+            List<Document> documents = new ArrayList<>();
+            documents.add(document);
+            return documents;
         } catch (Exception e) {
-            log.warn("Failed to fetch document detail for ID: {}, error: {}", docId, e.getMessage());
-            failedDocuments.add(docId);
+            log.error("Error loading DingTalk document: {}", docId, e);
+            throw new RuntimeException("Failed to load DingTalk document: " + docId, e);
+        }
+    }
+
+    /**
+     * 批量加载知识库文档。
+     *
+     * @return 文档列表
+     */
+    private List<Document> loadWorkspaceDocuments() {
+        List<Document> allDocuments = new ArrayList<>();
+        String nextToken = null;
+        boolean hasMore = true;
+
+        try {
+            while (hasMore) {
+                DingTalkResult<DingTalkDocList> result = service.getDocList(workspaceId, maxResults, nextToken);
+                
+                if (result.getErrCode() != 0) {
+                    log.error("Failed to load workspace documents: {}", result.getErrMsg());
+                    break;
+                }
+
+                DingTalkDocList docList = result.getResult();
+                if (docList == null || docList.getDocList() == null) {
+                    break;
+                }
+
+                // 处理当前页的文档
+                List<Document> batchDocuments = docList.getDocList().stream()
+                    .map(this::loadDocFromInfo)
+                    .filter(doc -> doc != null)
+                    .collect(Collectors.toList());
+                
+                allDocuments.addAll(batchDocuments);
+
+                // 更新分页信息
+                hasMore = docList.getHasMore() != null && docList.getHasMore();
+                nextToken = docList.getNextToken();
+            }
+
+            log.info("Loaded {} documents from DingTalk workspace {}", allDocuments.size(), workspaceId);
+            return allDocuments;
+        } catch (Exception e) {
+            log.error("Error loading DingTalk workspace documents: {}", workspaceId, e);
+            throw new RuntimeException("Failed to load DingTalk workspace documents: " + workspaceId, e);
+        }
+    }
+
+    /**
+     * 从文档信息加载完整文档
+     *
+     * @param docInfo 文档信息
+     * @return 文档对象
+     */
+    private Document loadDocFromInfo(DingTalkDocList.DocInfo docInfo) {
+        try {
+            String docId = docInfo.getDocId();
+            DingTalkResult<DingTalkDocContent> result = service.getDocContent(docId);
+            
+            if (result.getErrCode() != 0) {
+                log.warn("Failed to load document {}: {}", docId, result.getErrMsg());
+                return null;
+            }
+
+            DingTalkDocContent content = result.getResult();
+            if (content == null || StringUtils.isEmpty(content.getDocContent())) {
+                log.debug("Document {} has no content", docId);
+                return null;
+            }
+
+            Document document = new Document();
+            document.setUniqueId(docId);
+            document.setPageContent(content.getDocContent());
+
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("source", "dingtalk");
+            metadata.put("workspace_id", workspaceId);
+            metadata.put("doc_id", docId);
+            metadata.put("title", docInfo.getDocTitle());
+            metadata.put("doc_type", docInfo.getDocType());
+            metadata.put("create_time", docInfo.getCreateTime());
+            metadata.put("modified_time", docInfo.getModifiedTime());
+            metadata.put("creator_id", docInfo.getCreatorId());
+            metadata.put("modifier_id", docInfo.getModifierId());
+            metadata.put("url", domain + "/doc/" + docId);
+
+            document.setMetadata(metadata);
+            return document;
+        } catch (Exception e) {
+            log.error("Error loading document {}: {}", docInfo.getDocId(), e.getMessage());
             return null;
         }
     }
 
-    /**
-     * 从DingTalkDocInfo创建Document对象
-     */
-    private Document createDocumentFromInfo(DingTalkDocInfo docInfo) {
-        if (StringUtils.isEmpty(docInfo.getBody()) && StringUtils.isEmpty(docInfo.getBodyHtml())) {
-            log.debug("Skipping document with empty content: {}", docInfo.getId());
-            return null;
+    @Override
+    public List<Document> fetchContent(Map<String, Object> documentMeta) {
+        if (documentMeta.get("docId") != null) {
+            String tempDocId = (String) documentMeta.get("docId");
+            String originalDocId = this.docId;
+            try {
+                this.docId = tempDocId;
+                return load();
+            } finally {
+                this.docId = originalDocId;
+            }
+        } else if (documentMeta.get("workspaceId") != null) {
+            String tempWorkspaceId = (String) documentMeta.get("workspaceId");
+            String originalWorkspaceId = this.workspaceId;
+            try {
+                this.workspaceId = tempWorkspaceId;
+                return load();
+            } finally {
+                this.workspaceId = originalWorkspaceId;
+            }
         }
-        
-        Document document = new Document();
-        document.setUniqueId(docInfo.getId());
-        
-        // 构建metadata
-        Map<String, Object> metadata = new HashMap<>();
-        metadata.put("url", domain + namespace + "/" + docInfo.getId());
-        metadata.put("title", docInfo.getTitle());
-        metadata.put("author", docInfo.getCreator());
-        metadata.put("createdAt", docInfo.getCreatedAt());
-        metadata.put("updatedAt", docInfo.getUpdatedAt());
-        metadata.put("tags", docInfo.getTags());
-        metadata.put("source", "dingtalk");
-        
-        document.setMetadata(metadata);
-        
-        // 设置内容
-        String content = returnHtml ? docInfo.getBodyHtml() : cleanContent(docInfo.getBody());
-        document.setPageContent(content);
-        
-        return document;
-    }
-
-    /**
-     * 清理HTML内容，提取纯文本
-     */
-    private String cleanContent(String content) {
-        if (StringUtils.isEmpty(content)) {
-            return "";
-        }
-        
-        // 使用Jsoup安全地解析HTML并提取纯文本
-        return Jsoup.parse(content).text();
-    }
-
-    /**
-     * 验证配置
-     */
-    private void validateConfiguration() {
-        if (StringUtils.isEmpty(apiToken)) {
-            throw new IllegalArgumentException("API token is required");
-        }
-        if (StringUtils.isEmpty(namespace)) {
-            throw new IllegalArgumentException("Namespace is required");
-        }
-        if (batchSize <= 0 || batchSize > 100) {
-            throw new IllegalArgumentException("Batch size must be between 1 and 100");
-        }
-    }
-
-    /**
-     * Builder模式
-     */
-    public static class Builder {
-        private String apiToken;
-        private String namespace;
-        private String documentId;
-        private String domain = "https://docs.dingtalk.com/";
-        private int batchSize = 50;
-        private boolean returnHtml = false;
-        private Long timeout = 60L;
-
-        public Builder apiToken(String apiToken) {
-            this.apiToken = apiToken;
-            return this;
-        }
-
-        public Builder namespace(String namespace) {
-            this.namespace = namespace;
-            return this;
-        }
-
-        public Builder documentId(String documentId) {
-            this.documentId = documentId;
-            return this;
-        }
-
-        public Builder domain(String domain) {
-            this.domain = domain;
-            return this;
-        }
-
-        public Builder batchSize(int batchSize) {
-            this.batchSize = batchSize;
-            return this;
-        }
-
-        public Builder returnHtml(boolean returnHtml) {
-            this.returnHtml = returnHtml;
-            return this;
-        }
-
-        public Builder timeout(Long timeout) {
-            this.timeout = timeout;
-            return this;
-        }
-
-        public DingTalkDocLoader build() {
-            DingTalkDocLoader loader = new DingTalkDocLoader(apiToken, timeout);
-            loader.setNamespace(namespace);
-            loader.setDocumentId(documentId);
-            loader.setDomain(domain);
-            loader.setBatchSize(batchSize);
-            loader.setReturnHtml(returnHtml);
-            return loader;
-        }
+        return load();
     }
 }

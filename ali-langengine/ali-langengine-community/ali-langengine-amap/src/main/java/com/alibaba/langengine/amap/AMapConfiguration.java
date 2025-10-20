@@ -1,4 +1,5 @@
 package com.alibaba.langengine.amap;
+
 /**
  * Copyright (C) 2024 AIDC-AI
  *
@@ -21,13 +22,14 @@ import static com.alibaba.langengine.amap.sdk.AMapConstant.AMAP_BASE_URL;
 
 public class AMapConfiguration {
 
-    /**
-     * AMap API key, retrieved from work properties
-     */
-    public static String AMAP_API_KEY = WorkPropertiesUtils.get("amap_api_key");
+	/**
+	 * AMap API key, retrieved from work properties
+	 */
+	public static String AMAP_API_KEY = WorkPropertiesUtils.get("amap_api_key");
 
-    /**
-     * AMap API base URL, defaults to the constant BASE_URL if not configured
-     */
-    public static String AMAP_API_URL = WorkPropertiesUtils.get("amap_api_url", AMAP_BASE_URL);
+	/**
+	 * AMap API base URL, defaults to the constant BASE_URL if not configured
+	 */
+	public static String AMAP_API_URL = WorkPropertiesUtils.get("amap_api_url", AMAP_BASE_URL);
+
 }

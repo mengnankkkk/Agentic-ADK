@@ -21,17 +21,51 @@
 
 from .basic_embedding import BasicEmbedding
 from .openai_embedding import OpenAIEmbedding
+from .azure_openai_embedding import AzureOpenAIEmbedding
 from .aws_embedding import AWSEmbedding
 from .bailian_embedding import BailianEmbedding
 from .cohere_embedding import CohereEmbedding
 from .google_embedding import GoogleEmbedding
+from .huggingface_embedding import HuggingFaceEmbedding
+from .jina_embedding import JinaEmbedding
+from .mistral_embedding import MistralEmbedding
+from .minimax_embedding import MiniMaxEmbedding
+from .moonshot_embedding import MoonshotEmbedding
+from .qianfan_embedding import QianfanEmbedding
+from .doubao_embedding import DoubaoEmbedding
+from .anthropic_embedding import AnthropicEmbedding
+from .deepseek_embedding import DeepSeekEmbedding
+from .tencent_embedding import TencentEmbedding
+from .voyage_embedding import VoyageEmbedding
+from .zhipu_embedding import ZhipuEmbedding
+from .yi_embedding import YiEmbedding
+from .sensenova_embedding import SenseNovaEmbedding
+from .siliconflow_embedding import SiliconFlowEmbedding
+from .ollama_embedding import OllamaEmbedding
 
 
 __all__ = [
     "BasicEmbedding",
     "OpenAIEmbedding",
+    "AzureOpenAIEmbedding",
     "AWSEmbedding",
     "BailianEmbedding",
     "CohereEmbedding",
     "GoogleEmbedding",
+    "HuggingFaceEmbedding",
+    "JinaEmbedding",
+    "MistralEmbedding",
+    "MiniMaxEmbedding",
+    "MoonshotEmbedding",
+    "QianfanEmbedding",
+    "DoubaoEmbedding",
+    "AnthropicEmbedding",
+    "DeepSeekEmbedding",
+    "TencentEmbedding",
+    "VoyageEmbedding",
+    "ZhipuEmbedding",
+    "YiEmbedding",
+    "SenseNovaEmbedding",
+    "SiliconFlowEmbedding",
+    "OllamaEmbedding",
 ]
